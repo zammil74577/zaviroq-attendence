@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.vercel/
+.env
+.env.*
+!.env.example
+data/
+backups/
+uploads/
+*.db
+*.db-shm
+*.db-wal
+*.log
+.DS_Store

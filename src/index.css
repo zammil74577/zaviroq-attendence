@@ -1,0 +1,100 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  .font-mono-num {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Custom subtle scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.22);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.4);
+}
+
+/* Prevent browser autofill from turning dark inputs bright white */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #f8fafc !important;
+  -webkit-box-shadow: 0 0 0px 1000px #090d1a inset !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+@keyframes scanner-sweep {
+  0%, 100% { top: 10%; opacity: 0.4; }
+  50% { top: 86%; opacity: 1; }
+}
+.animate-scanner-sweep {
+  animation: scanner-sweep 2.2s ease-in-out infinite;
+}
+
+@keyframes zavi-bounce {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-5px); }
+}
+@keyframes zavi-shake {
+  0%, 100% { transform: translateX(0px) rotate(0deg); }
+  25% { transform: translateX(-3px) rotate(-2deg); }
+  75% { transform: translateX(3px) rotate(2deg); }
+}
+@keyframes zavi-steam {
+  0% { transform: translateY(4px) scale(0.9); opacity: 0.2; }
+  50% { transform: translateY(-5px) scale(1.05); opacity: 0.9; }
+  100% { transform: translateY(-12px) scale(1.1); opacity: 0; }
+}
+@keyframes zavi-walk-border {
+  0%   { left: 14px;  transform: scaleX(1) translateY(0px) rotate(2deg); }
+  7%   { left: 45px;  transform: scaleX(1) translateY(-6px) rotate(-3deg); }
+  14%  { left: 80px;  transform: scaleX(1) translateY(0px) rotate(3deg); }
+  21%  { left: 118px; transform: scaleX(1) translateY(-6px) rotate(-3deg); }
+  28%  { left: 156px; transform: scaleX(1) translateY(0px) rotate(3deg); }
+  35%  { left: 194px; transform: scaleX(1) translateY(-6px) rotate(-3deg); }
+  42%  { left: 232px; transform: scaleX(1) translateY(0px) rotate(2deg); }
+  48%  { left: 232px; transform: scaleX(-1) translateY(-3px) rotate(0deg); }
+  56%  { left: 194px; transform: scaleX(-1) translateY(-6px) rotate(-3deg); }
+  64%  { left: 156px; transform: scaleX(-1) translateY(0px) rotate(3deg); }
+  72%  { left: 118px; transform: scaleX(-1) translateY(-6px) rotate(-3deg); }
+  80%  { left: 80px;  transform: scaleX(-1) translateY(0px) rotate(3deg); }
+  88%  { left: 45px;  transform: scaleX(-1) translateY(-6px) rotate(-3deg); }
+  95%  { left: 14px;  transform: scaleX(-1) translateY(0px) rotate(0deg); }
+  100% { left: 14px;  transform: scaleX(1) translateY(0px) rotate(2deg); }
+}
+@keyframes zavi-dance {
+  0%, 100% { transform: translateY(0px) rotate(-6deg) scale(1); }
+  25% { transform: translateY(-10px) rotate(6deg) scale(1.05); }
+  50% { transform: translateY(-2px) rotate(-6deg) scale(0.98); }
+  75% { transform: translateY(-10px) rotate(6deg) scale(1.05); }
+}
+@keyframes zavi-curious {
+  0%   { transform: translateY(8px) scale(0.92) rotate(0deg); }
+  35%  { transform: translateY(-10px) scale(1.08) rotate(-10deg); }
+  70%  { transform: translateY(-4px) scale(1.04) rotate(8deg); }
+  100% { transform: translateY(0px) scale(1.03) rotate(-6deg); }
+}
+@keyframes zavi-climb {
+  0%, 100% { transform: translateY(0px) rotate(-10deg); }
+  50% { transform: translateY(-14px) rotate(5deg); }
+}
+.animate-zavi-bounce { animation: zavi-bounce 2.2s ease-in-out infinite; }
+.animate-zavi-shake { animation: zavi-shake 0.45s ease-in-out infinite; }
+.animate-zavi-steam { animation: zavi-steam 2s ease-out infinite; }
+.animate-zavi-walk { animation: zavi-walk-border 8.5s linear infinite; }
+.animate-zavi-dance { animation: zavi-dance 1.05s ease-in-out infinite; }
+.animate-zavi-curious { animation: zavi-curious 0.9s ease-out forwards; }
+.animate-zavi-climb { animation: zavi-climb 1.8s ease-in-out infinite; }
