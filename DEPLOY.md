@@ -102,8 +102,9 @@ npm run migrate:chat-images
 
 ## 6. Verify Vercel Cron Jobs
 
-`vercel.json` configures two cron schedules automatically:
-- **`/api/cron/auto-clockout`** (`*/15 * * * *`): Closes stale shifts, ends overdue breaks, and marks stale employees `Offline`.
+`vercel.json` configures two daily cron schedules (compatible with **Vercel Hobby**):
+- **`/api/cron/auto-clockout`** (`30 18 * * *` UTC = `00:00 IST`): Closes stale shifts, ends overdue breaks, and marks stale employees `Offline`.
+  - *Tip for 15-minute intervals:* Vercel Hobby limits built-in crons to once per day. On **Vercel Pro**, change the schedule in `vercel.json` to `*/15 * * * *`, or on Hobby trigger `GET https://your-app.vercel.app/api/cron/auto-clockout` every 15 minutes from an external cron service (e.g. cron-job.org / GitHub Actions) with `Authorization: Bearer <CRON_SECRET>`.
 - **`/api/cron/daily`** (`35 18 * * *` UTC = `00:05 IST`): Marks absent employees for the previous workday and sends digest notifications.
 
 Vercel automatically sends `Authorization: Bearer <CRON_SECRET>` when `CRON_SECRET` is configured in Environment Variables.
