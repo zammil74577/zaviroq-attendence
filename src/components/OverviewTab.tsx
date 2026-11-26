@@ -509,7 +509,7 @@ const KpiCard: React.FC<{
 
   if (featured) {
     return (
-      <div className="zv-card zv-card-hover relative overflow-hidden p-5 border-transparent bg-gradient-to-br from-[#6D4AFF] via-[#7C3AED] to-[#8B5CF6] text-white shadow-[0_12px_28px_rgba(109,74,255,0.28)] zv-text-white-keep">
+      <div className="zv-card-featured zv-card-hover relative overflow-hidden p-5 text-white zv-text-white-keep">
         <div
           aria-hidden="true"
           className="pointer-events-none absolute -top-10 -right-10 h-36 w-36 rounded-full bg-white/15 blur-xl"
