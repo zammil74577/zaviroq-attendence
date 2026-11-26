@@ -1606,8 +1606,16 @@ app.put('/api/settings', requireRole('admin', 'manager'), async (req, res) => {
     'shiftStart', 'shiftEnd', 'lateGraceMinutes', 'lunchBreak', 'lunchMinutes',
     'teaBreakAfter', 'teaMinutes', 'totalBreakMinutes', 'netWorkHours',
     'idleThresholdSeconds', 'autoClockOutBufferMinutes', 'afterHoursClockInMode', 'weekendDays',
-    'lateDeductionEnabled', 'lateDaysPerHalfDayLop', 'overtimePolicy', 'prorateAnnualLeave',
+    'lateDeductionEnabled', 'lateDaysPerHalfDayLop', 'overtimePolicy', 'prorateAnnualLeave', 'heroBannerUrl',
   ];
+  if (req.body.heroBannerUrl !== undefined && String(req.body.heroBannerUrl).trim() !== '') {
+    const raw = String(req.body.heroBannerUrl).trim();
+    const valid = (/^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(raw) && raw.length <= 800000) ||
+      (/^https?:\/\/.+/.test(raw) && raw.length <= 500);
+    if (!valid) {
+      return res.status(400).json({ error: 'Hero banner must be a valid image under 600 KB or https URL.' });
+    }
+  }
   for (const key of allowedKeys) {
     if (req.body[key] !== undefined) {
       const val = typeof req.body[key] === 'object' ? JSON.stringify(req.body[key]) : String(req.body[key]);

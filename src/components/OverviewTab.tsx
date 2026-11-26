@@ -128,7 +128,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
         <div className="hidden md:block absolute inset-y-0 right-0 w-[52%] pointer-events-none">
           <img
-            src="/hero-office.webp"
+            src={schedule?.heroBannerUrl || '/hero-office.webp'}
             alt=""
             loading="lazy"
             className="h-full w-full object-cover object-right"

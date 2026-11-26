@@ -244,6 +244,7 @@ export interface OfficeSchedule {
   afterHoursClockInMode?: string;
   weekendDays?: number[];
   lateDeductionEnabled?: boolean;
+  heroBannerUrl?: string;
   lateDaysPerHalfDayLop?: number;
   overtimePolicy?: string;
   prorateAnnualLeave?: boolean;

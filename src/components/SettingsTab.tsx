@@ -506,6 +506,72 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ onSaved }) => {
             </label>
           </div>
 
+          <div className="pt-3 border-t border-slate-800 space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-slate-200">Dashboard Hero Banner Image</span>
+              <span className="text-[11px] text-slate-400">Shown on Command Overview</span>
+            </div>
+            <div className="rounded-xl overflow-hidden border border-slate-800 h-24 bg-slate-950">
+              <img
+                src={settings.heroBannerUrl || '/hero-office.webp'}
+                alt="Hero banner preview"
+                className="h-full w-full object-cover object-right"
+              />
+            </div>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <label className="inline-flex items-center gap-1.5 rounded-xl border border-[#DDD6FE] bg-[#EFEAFF] hover:bg-[#E4DCFF] px-3 py-1.5 text-xs font-semibold text-[#6D4AFF] cursor-pointer">
+                Upload Banner Image
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const img = new Image();
+                      img.onload = () => {
+                        const targetW = 1200;
+                        const targetH = 300;
+                        const canvas = document.createElement('canvas');
+                        canvas.width = targetW;
+                        canvas.height = targetH;
+                        const ctx = canvas.getContext('2d');
+                        if (!ctx) return;
+                        const targetRatio = targetW / targetH;
+                        const srcRatio = img.width / img.height;
+                        let sx = 0, sy = 0, sw = img.width, sh = img.height;
+                        if (srcRatio > targetRatio) {
+                          sw = img.height * targetRatio;
+                          sx = (img.width - sw) / 2;
+                        } else {
+                          sh = img.width / targetRatio;
+                          sy = (img.height - sh) / 2;
+                        }
+                        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, targetW, targetH);
+                        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                        setSettings({ ...settings, heroBannerUrl: dataUrl });
+                      };
+                      img.src = String(reader.result || '');
+                    };
+                    reader.readAsDataURL(file);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+              {settings.heroBannerUrl && (
+                <button
+                  type="button"
+                  onClick={() => setSettings({ ...settings, heroBannerUrl: '' })}
+                  className="rounded-xl border border-slate-700 px-3 py-1.5 text-xs font-semibold text-rose-300 cursor-pointer"
+                >
+                  Reset to Default
+                </button>
+              )}
+            </div>
+          </div>
+
           <button
             type="submit"
             disabled={saving}

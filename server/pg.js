@@ -312,6 +312,7 @@ export async function getSettings() {
     lateDaysPerHalfDayLop: Number(map.lateDaysPerHalfDayLop ?? 3),
     overtimePolicy: map.overtimePolicy || 'net_hours',
     prorateAnnualLeave: map.prorateAnnualLeave !== 'false',
+    heroBannerUrl: map.heroBannerUrl || '',
   };
 }
 
