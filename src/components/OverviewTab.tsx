@@ -88,14 +88,14 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             Track attendance, productivity, and team activity — all in one place.
           </p>
         </div>
-        <div className="hidden md:block absolute inset-y-0 right-0 w-[46%] pointer-events-none">
+        <div className="hidden md:block absolute inset-y-0 right-0 w-[52%] pointer-events-none">
           <img
             src="/hero-office.webp"
             alt=""
             loading="lazy"
-            className="h-full w-full object-cover"
+            className="h-full w-full object-cover object-right"
           />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#F7F5FF] via-[#F7F5FF]/45 to-transparent" />
+          <div className="absolute inset-y-0 left-0 w-32 bg-gradient-to-r from-[#F7F5FF] via-[#F7F5FF]/70 to-transparent" />
         </div>
       </section>
 

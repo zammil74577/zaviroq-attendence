@@ -184,7 +184,9 @@
 
 /* High-contrast status text & banner tints in light mode */
 [data-theme="light"] .bg-amber-500\/15,
-[data-theme="light"] .bg-amber-500\/10 {
+[data-theme="light"] .bg-amber-500\/10,
+[data-theme="light"] .bg-amber-500\/20,
+[data-theme="light"] .bg-amber-950\/40 {
   background-color: #FFF4E0 !important;
 }
 [data-theme="light"] .bg-rose-500\/15,
@@ -193,16 +195,24 @@
   background-color: #FDECEC !important;
 }
 [data-theme="light"] .bg-emerald-500\/15,
-[data-theme="light"] .bg-emerald-500\/10 {
+[data-theme="light"] .bg-emerald-500\/10,
+[data-theme="light"] .bg-emerald-950\/40 {
   background-color: #E8F8EE !important;
 }
 [data-theme="light"] .bg-indigo-500\/15,
-[data-theme="light"] .bg-indigo-500\/10 {
+[data-theme="light"] .bg-indigo-500\/10,
+[data-theme="light"] .bg-indigo-950\/50,
+[data-theme="light"] .bg-indigo-950\/60 {
   background-color: #EFEAFF !important;
 }
 [data-theme="light"] .bg-sky-500\/15,
 [data-theme="light"] .bg-sky-500\/10 {
   background-color: #E8F0FF !important;
+}
+[data-theme="light"] .text-amber-100,
+[data-theme="light"] .text-amber-200,
+[data-theme="light"] .text-amber-300 {
+  color: #92400E !important;
 }
 [data-theme="light"] .text-emerald-300,
 [data-theme="light"] .text-emerald-200 {

@@ -574,11 +574,11 @@ export function App() {
             const [eh, em] = (currentUser?.shift_end || data?.officeSchedule?.shiftEnd || '17:30').split(':').map(Number);
             if (now.getHours() * 60 + now.getMinutes() > eh * 60 + em) {
               return (
-                <div className="rounded-xl border border-indigo-500/40 bg-indigo-950/50 px-4 py-2.5 text-xs text-indigo-200 flex items-center justify-between gap-3">
+                <div className="rounded-2xl border border-[#DDD6FE] bg-[#EFEAFF] px-4 py-2.5 text-xs font-medium text-[#3B2E7E] flex items-center justify-between gap-3 shadow-xs">
                   <span>Shift ended ({currentUser?.shift_end || '17:30'}) — remember to clock out!</span>
                   <button
                     onClick={handleClockOut}
-                    className="rounded-lg bg-rose-600 hover:bg-rose-500 px-3 py-1 font-semibold text-white cursor-pointer shrink-0"
+                    className="rounded-[10px] bg-[#E11D48] hover:bg-[#BE123C] px-3.5 py-1.5 font-semibold text-white cursor-pointer shrink-0 zv-text-white-keep"
                   >
                     Clock Out Now
                   </button>
