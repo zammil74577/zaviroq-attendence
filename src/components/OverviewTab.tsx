@@ -101,49 +101,53 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
       {/* Important Announcements Banner */}
       {announcements.length > 0 && (
-        <div className="zv-card p-4 flex items-start gap-3 border-[#DDD6FE] bg-gradient-to-r from-[#EFEAFF]/70 to-[var(--zv-surface)]">
-          <div className="rounded-xl bg-[#EFEAFF] p-2.5 text-[#6D4AFF] shrink-0">
+        <div className="zv-card p-4 flex items-start gap-3.5 border-l-4 border-l-[#6D4AFF] bg-gradient-to-r from-[#EFEAFF]/55 via-[var(--zv-surface)] to-[var(--zv-surface)]">
+          <div className="zv-icon-chip h-10 w-10 rounded-xl bg-[#EFEAFF] text-[#6D4AFF] flex items-center justify-center shrink-0">
             <Megaphone className="h-4 w-4" strokeWidth={1.75} />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-bold uppercase tracking-wider text-[#6D4AFF]">
+              <span className="rounded-full bg-[#EFEAFF] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#6D4AFF]">
                 {announcements[0].title}
               </span>
               <span className="text-[11px] text-[var(--zv-muted)]">
-                • Posted by {announcements[0].author_name || 'Admin'}
+                &bull; Posted by {announcements[0].author_name || 'Admin'}
               </span>
             </div>
-            <p className="mt-0.5 text-sm text-[var(--zv-text-secondary)]">{announcements[0].message}</p>
+            <p className="mt-1 text-sm text-[var(--zv-text-secondary)]">{announcements[0].message}</p>
           </div>
         </div>
       )}
 
       {/* Office Timing Strip */}
-      <div className="zv-card px-4 sm:px-5 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
-        <div className="flex items-center gap-2 font-semibold text-[var(--zv-text)]">
-          <span className="h-7 w-7 rounded-lg bg-[#EFEAFF] text-[#6D4AFF] flex items-center justify-center shrink-0">
+      <div className="zv-card px-4 sm:px-5 py-3 flex flex-wrap items-center justify-between gap-3 text-xs bg-gradient-to-r from-[var(--zv-surface)] via-[#FAF8FF] to-[var(--zv-surface)]">
+        <div className="flex items-center gap-2.5 font-semibold text-[var(--zv-text)]">
+          <span className="h-8 w-8 rounded-xl bg-[#EFEAFF] text-[#6D4AFF] flex items-center justify-center shrink-0">
             <Calendar className="h-4 w-4" strokeWidth={1.75} />
           </span>
-          <span>Zaviroq Office Timing:</span>
+          <span className="text-[var(--zv-muted)] font-medium">Zaviroq Office Timing:</span>
           <span className="font-mono-num font-bold text-[#1A1635]">
             {schedule?.shiftStart || '09:30'} – {schedule?.shiftEnd || '17:30'} (IST)
           </span>
-          <span className="text-[11px] font-normal text-[var(--zv-muted)]">
-            ({schedule?.lateGraceMinutes ?? 15}m grace)
+          <span className="rounded-full bg-[#F3F0FF] px-2 py-0.5 text-[10px] font-semibold text-[#6D4AFF]">
+            {schedule?.lateGraceMinutes ?? 15}m grace
           </span>
         </div>
-        <div className="flex flex-wrap items-center gap-4 text-[var(--zv-text-secondary)]">
-          <span className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-2.5 text-[var(--zv-text-secondary)]">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--zv-border)] bg-[var(--zv-surface)] px-3 py-1">
             <Clock className="h-3.5 w-3.5 text-[#2563EB]" strokeWidth={1.75} />
-            Lunch Break: <strong className="text-[var(--zv-text)] font-mono-num">{schedule?.lunchBreak || '13:00'} ({schedule?.lunchMinutes ?? 45}m)</strong>
+            <span className="text-[var(--zv-muted)]">Lunch:</span>
+            <strong className="text-[var(--zv-text)] font-mono-num">{schedule?.lunchBreak || '13:00'} ({schedule?.lunchMinutes ?? 45}m)</strong>
           </span>
-          <span className="flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--zv-border)] bg-[var(--zv-surface)] px-3 py-1">
             <Coffee className="h-3.5 w-3.5 text-[#D97706]" strokeWidth={1.75} />
-            Tea Break: <strong className="text-[var(--zv-text)] font-mono-num">{schedule?.teaMinutes ?? 15}m</strong> after {schedule?.teaBreakAfter || '15:00'}
+            <span className="text-[var(--zv-muted)]">Tea:</span>
+            <strong className="text-[var(--zv-text)] font-mono-num">{schedule?.teaMinutes ?? 15}m</strong>
+            <span className="text-[var(--zv-muted)]">after {schedule?.teaBreakAfter || '15:00'}</span>
           </span>
-          <span className="text-[var(--zv-muted)]">
-            Net Shift: <strong className="text-[#6D4AFF] font-mono-num">{schedule?.netWorkHours ?? 7}h</strong>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#DDD6FE] bg-[#EFEAFF]/70 px-3 py-1 text-[#6D4AFF]">
+            <span>Net Shift:</span>
+            <strong className="font-mono-num">{schedule?.netWorkHours ?? 7}h</strong>
           </span>
         </div>
       </div>
@@ -164,8 +168,9 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   : 'Not Started'
               }
               sub={`In: ${formatClockTime(currentUser.clock_in)} • Shift ${currentUser.shift_start}–${currentUser.shift_end}`}
-              icon={<Clock className="h-5 w-5 text-[#6D4AFF]" strokeWidth={1.75} />}
+              icon={<Clock className="h-5 w-5 text-white" strokeWidth={1.75} />}
               accent="purple"
+              featured
             />
             <KpiCard
               title="Active vs Idle Time"
@@ -195,8 +200,11 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               title="Workforce Present"
               value={`${summary.presentCount} / ${summary.totalEmployees}`}
               sub={`${summary.lateCount} late • ${summary.clockedOutCount} clocked out • ${summary.absentCount} absent`}
-              icon={<Users className="h-5 w-5 text-[#6D4AFF]" strokeWidth={1.75} />}
+              icon={<Users className="h-5 w-5 text-white" strokeWidth={1.75} />}
               accent="purple"
+              featured
+              avatars={employees.slice(0, 3).map((e) => ({ name: e.name, color: e.avatar_color }))}
+              extraCount={Math.max(0, summary.totalEmployees - 3)}
             />
             <KpiCard
               title="Live Desk Telemetry"
@@ -487,38 +495,91 @@ const KpiCard: React.FC<{
   sub: string;
   icon: React.ReactNode;
   accent: 'purple' | 'green' | 'orange' | 'blue';
-}> = ({ title, value, sub, icon, accent }) => {
-  const styles: Record<string, { chip: string; wave: string }> = {
-    purple: {
-      chip: 'bg-[#EFEAFF]',
-      wave: 'from-[#6D4AFF]/15 via-[#8B5CF6]/10 to-transparent',
-    },
-    green: {
-      chip: 'bg-[#E8F8EE]',
-      wave: 'from-[#16A34A]/15 via-[#22C55E]/10 to-transparent',
-    },
-    orange: {
-      chip: 'bg-[#FFEDE3]',
-      wave: 'from-[#EA580C]/15 via-[#F97316]/10 to-transparent',
-    },
-    blue: {
-      chip: 'bg-[#E8F0FF]',
-      wave: 'from-[#2563EB]/15 via-[#3B82F6]/10 to-transparent',
-    },
+  featured?: boolean;
+  avatars?: Array<{ name: string; color: string }>;
+  extraCount?: number;
+}> = ({ title, value, sub, icon, accent, featured = false, avatars, extraCount = 0 }) => {
+  const styles: Record<string, { chip: string; stroke: string; fill: string }> = {
+    purple: { chip: 'bg-[#EFEAFF]', stroke: '#6D4AFF', fill: 'rgba(109,74,255,0.12)' },
+    green: { chip: 'bg-[#E8F8EE]', stroke: '#16A34A', fill: 'rgba(22,163,74,0.12)' },
+    orange: { chip: 'bg-[#FFEDE3]', stroke: '#EA580C', fill: 'rgba(234,88,12,0.12)' },
+    blue: { chip: 'bg-[#E8F0FF]', stroke: '#2563EB', fill: 'rgba(37,99,235,0.12)' },
   };
   const st = styles[accent];
+
+  if (featured) {
+    return (
+      <div className="zv-card zv-card-hover relative overflow-hidden p-5 border-transparent bg-gradient-to-br from-[#6D4AFF] via-[#7C3AED] to-[#8B5CF6] text-white shadow-[0_12px_28px_rgba(109,74,255,0.28)] zv-text-white-keep">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-10 -right-10 h-36 w-36 rounded-full bg-white/15 blur-xl"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -bottom-10 left-1/3 h-28 w-48 rounded-full bg-indigo-950/25 blur-xl"
+        />
+        <div className="relative z-10 flex items-start justify-between gap-2">
+          <div className="flex items-start gap-3.5 min-w-0">
+            <div className="zv-icon-chip h-12 w-12 rounded-2xl bg-white/20 backdrop-blur-xs flex items-center justify-center shrink-0">
+              {icon}
+            </div>
+            <div className="min-w-0">
+              <div className="text-[13px] font-medium text-white/85 zv-text-white-keep">{title}</div>
+              <div className="mt-1 text-[32px] leading-none font-extrabold tracking-tight font-heading text-white tabular-nums zv-text-white-keep">
+                {value}
+              </div>
+              <div className="mt-2 text-xs text-white/85 leading-snug zv-text-white-keep">{sub}</div>
+            </div>
+          </div>
+          {avatars && avatars.length > 0 && (
+            <div className="flex items-center -space-x-2 shrink-0 pt-1">
+              {avatars.map((a, idx) => (
+                <span
+                  key={idx}
+                  title={a.name}
+                  className="h-7 w-7 rounded-full border-2 border-[#7C3AED] flex items-center justify-center text-[10px] font-bold text-white shadow-sm zv-text-white-keep"
+                  style={{ backgroundColor: a.color }}
+                >
+                  {getInitials(a.name)}
+                </span>
+              ))}
+              {extraCount > 0 && (
+                <span className="h-7 w-7 rounded-full border-2 border-[#7C3AED] bg-white/25 backdrop-blur-xs flex items-center justify-center text-[10px] font-bold text-white zv-text-white-keep">
+                  +{extraCount}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="zv-card zv-card-hover relative overflow-hidden p-5">
-      {/* Soft bottom-right colored wave/gradient */}
-      <div
+      {/* Crisp sparkline wave SVG in bottom-right */}
+      <svg
         aria-hidden="true"
-        className={`pointer-events-none absolute -bottom-6 -right-6 h-24 w-36 rounded-full bg-gradient-to-tl ${st.wave} blur-md`}
-      />
+        viewBox="0 0 120 44"
+        className="pointer-events-none absolute bottom-0 right-0 w-28 h-11 opacity-85"
+      >
+        <path
+          d="M0,40 C20,38 28,22 45,26 C62,30 70,12 88,16 C102,19 108,8 120,10 L120,44 L0,44 Z"
+          fill={st.fill}
+        />
+        <path
+          d="M0,40 C20,38 28,22 45,26 C62,30 70,12 88,16 C102,19 108,8 120,10"
+          fill="none"
+          stroke={st.stroke}
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+      </svg>
       <div className="relative z-10 flex items-start gap-3.5">
         <div className={`zv-icon-chip h-12 w-12 rounded-2xl ${st.chip} flex items-center justify-center shrink-0`}>
           {icon}
         </div>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 pr-6">
           <div className="text-[13px] font-medium text-[var(--zv-muted)]">{title}</div>
           <div className="mt-1 text-[32px] leading-none font-extrabold tracking-tight font-heading text-[var(--zv-text)] tabular-nums">
             {value}
