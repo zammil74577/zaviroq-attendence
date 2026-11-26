@@ -236,6 +236,7 @@ export function App() {
     designation: string;
     shift_start: string;
     shift_end: string;
+    joining_date?: string;
   }) => {
     const res = await fetch('/api/employees', {
       method: 'POST',

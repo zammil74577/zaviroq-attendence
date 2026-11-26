@@ -409,9 +409,10 @@ app.get('/api/dashboard', (req, res) => {
   const settings = getSettings();
   const breakLimitSec = settings.totalBreakMinutes * 60;
 
+  const includeInactive = isPrivileged && req.query.includeInactive === 'true';
   const rawEmployees = db.prepare(`
     SELECT e.id, e.emp_code, e.name, e.email, e.role, e.department, e.designation,
-      e.shift_start, e.shift_end, e.status, e.avatar_color, e.is_active, e.last_seen_at,
+      e.shift_start, e.shift_end, e.status, e.avatar_color, e.joining_date, e.is_active, e.last_seen_at,
       e.last_heartbeat_at, e.last_heartbeat_state, e.created_at,
       a.id as attendance_id,
       a.clock_in,
@@ -426,12 +427,14 @@ app.get('/api/dashboard', (req, res) => {
       COALESCE(a.notes, '') as attendance_notes
     FROM employees e
     LEFT JOIN attendance a ON a.employee_id = e.id AND a.date = ?
-    WHERE e.is_active = 1 ${isPrivileged ? '' : 'AND e.id = ?'}
+    WHERE ${includeInactive ? '1=1' : 'e.is_active = 1'} ${isPrivileged ? '' : 'AND e.id = ?'}
     ORDER BY e.id ASC
   `).all(...(isPrivileged ? [date] : [date, req.user.id]));
 
   const employees = rawEmployees.map((e) => ({
     ...sanitizeEmployee(e),
+    shift_start: e.shift_start || settings.shiftStart,
+    shift_end: e.shift_end || settings.shiftEnd,
     break_over_limit: (e.break_seconds || 0) > breakLimitSec,
   }));
 
@@ -503,7 +506,8 @@ app.get('/api/dashboard', (req, res) => {
 // EMPLOYEE MANAGEMENT (Admin/Manager)
 // ========================
 app.post('/api/employees', requireRole('admin', 'manager'), (req, res) => {
-  const { name, email, role = 'employee', department, designation, shift_start = '09:30', shift_end = '17:30', pin = '1234' } = req.body;
+  const settings = getSettings();
+  const { name, email, role = 'employee', department, designation, shift_start = settings.shiftStart, shift_end = settings.shiftEnd, joining_date, pin = '1234' } = req.body;
   if (!name?.trim() || !email?.trim() || !department?.trim() || !designation?.trim()) {
     return res.status(400).json({ error: 'Name, email, department, and designation are required.' });
   }
@@ -512,12 +516,13 @@ app.post('/api/employees', requireRole('admin', 'manager'), (req, res) => {
   const nextNum = (maxRow?.maxId || 0) + 1;
   const emp_code = `ZAV-${String(nextNum).padStart(3, '0')}`;
   const avatar_color = palette[nextNum % palette.length];
+  const safeJoiningDate = joining_date || getTodayDate();
 
   try {
     const info = db.prepare(`
-      INSERT INTO employees (emp_code, name, email, role, department, designation, shift_start, shift_end, status, avatar_color, pin)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'offline', ?, ?)
-    `).run(emp_code, name.trim(), email.trim().toLowerCase(), role, department.trim(), designation.trim(), shift_start, shift_end, avatar_color, hashPin(pin));
+      INSERT INTO employees (emp_code, name, email, role, department, designation, shift_start, shift_end, status, avatar_color, joining_date, pin)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'offline', ?, ?, ?)
+    `).run(emp_code, name.trim(), email.trim().toLowerCase(), role, department.trim(), designation.trim(), shift_start || settings.shiftStart, shift_end || settings.shiftEnd, avatar_color, safeJoiningDate, hashPin(pin));
     const created = db.prepare('SELECT * FROM employees WHERE id = ?').get(info.lastInsertRowid);
     db.prepare(`INSERT OR IGNORE INTO salary_structures (employee_id) VALUES (?)`).run(created.id);
     writeAuditLog({
@@ -546,10 +551,12 @@ app.patch('/api/employees/:id', requireRole('admin', 'manager'), (req, res) => {
     role = existing.role,
     shift_start = existing.shift_start,
     shift_end = existing.shift_end,
+    joining_date = existing.joining_date,
     is_active = existing.is_active,
   } = req.body;
 
-  if (Number(is_active) === 0) {
+  const nextActive = Number(is_active) === 0 || is_active === false ? 0 : 1;
+  if (nextActive === 0) {
     if (Number(id) === req.user.id) {
       return res.status(400).json({ error: 'You cannot deactivate your own account.' });
     }
@@ -563,15 +570,33 @@ app.patch('/api/employees/:id', requireRole('admin', 'manager'), (req, res) => {
 
   db.prepare(`
     UPDATE employees
-    SET name = ?, department = ?, designation = ?, role = ?, shift_start = ?, shift_end = ?, is_active = ?
+    SET name = ?, department = ?, designation = ?, role = ?, shift_start = ?, shift_end = ?,
+        joining_date = COALESCE(?, joining_date), is_active = ?,
+        status = CASE WHEN ? = 0 THEN 'offline' ELSE status END,
+        last_heartbeat_at = CASE WHEN ? = 0 THEN NULL ELSE last_heartbeat_at END,
+        last_heartbeat_state = CASE WHEN ? = 0 THEN NULL ELSE last_heartbeat_state END,
+        active_session_id = CASE WHEN ? = 0 THEN NULL ELSE active_session_id END
     WHERE id = ?
-  `).run(name.trim(), department.trim(), designation.trim(), role, shift_start, shift_end, Number(is_active), id);
+  `).run(name.trim(), department.trim(), designation.trim(), role, shift_start, shift_end, joining_date || null, nextActive, nextActive, nextActive, nextActive, nextActive, id);
+
+  if (nextActive === 0) {
+    const nowIso = new Date().toISOString();
+    const openAtts = db.prepare(`SELECT id, date, active_seconds FROM attendance WHERE employee_id = ? AND clock_in IS NOT NULL AND clock_out IS NULL`).all(id);
+    for (const att of openAtts) {
+      db.prepare(`UPDATE attendance SET clock_out = ?, notes = CASE WHEN notes != '' THEN notes || ' | Deactivated' ELSE 'Deactivated' END, updated_at = datetime('now') WHERE id = ?`).run(nowIso, att.id);
+      db.prepare(`INSERT INTO activity_logs (employee_id, date, type, duration_seconds, reason, timestamp) VALUES (?, ?, 'clock_out', ?, 'Deactivated', ?)`).run(id, att.date, att.active_seconds || 0, nowIso);
+    }
+    db.prepare(`DELETE FROM sessions WHERE employee_id = ?`).run(id);
+  }
 
   const updated = db.prepare('SELECT * FROM employees WHERE id = ?').get(id);
+  const actionName = nextActive === 0
+    ? 'DEACTIVATE_EMPLOYEE'
+    : (Number(existing.is_active) === 0 && nextActive === 1 ? 'REACTIVATE_EMPLOYEE' : 'EDIT_EMPLOYEE');
   writeAuditLog({
     actorId: req.user.id,
     actorName: req.user.name,
-    action: Number(is_active) === 0 ? 'DEACTIVATE_EMPLOYEE' : 'EDIT_EMPLOYEE',
+    action: actionName,
     entityType: 'employee',
     entityId: id,
     oldValue: sanitizeEmployee(existing),
@@ -735,7 +760,7 @@ app.post('/api/activity/heartbeat', (req, res) => {
   // Multi-tab check (#9): only credit time from the most recent active session
   if (sessionId && emp.active_session_id && emp.active_session_id !== sessionId && !claimSession) {
     const lastHbMs = emp.last_heartbeat_at ? new Date(emp.last_heartbeat_at).getTime() : 0;
-    if (now.getTime() - lastHbMs < 45000) {
+    if (now.getTime() - lastHbMs < 90000) {
       return res.json({ ok: true, pausedByOtherTab: true, attendance: att });
     }
   }
@@ -1040,11 +1065,34 @@ export function buildMonthlyReport(month) {
   const approvedLeaves = db.prepare(`SELECT * FROM leaves WHERE status = 'approved' AND start_date LIKE ?`).all(likePattern);
 
   const currentMonth = getCurrentMonth();
+  const todayDate = getTodayDate();
   const todayDay = new Date().getDate();
   const totalWorkingDays = countMonthWorkingDays(month);
   const elapsedWorkingDays = month === currentMonth ? countMonthWorkingDays(month, todayDay) : (month < currentMonth ? totalWorkingDays : 0);
-  const prorationRatio = Math.min(1, elapsedWorkingDays / totalWorkingDays);
+  const prorationRatio = Math.min(1, elapsedWorkingDays / Math.max(1, totalWorkingDays));
   const locked = isPayrollLocked(month);
+  const holidayRows = db.prepare('SELECT date FROM holidays WHERE date LIKE ?').all(likePattern);
+  const holidaySet = new Set(holidayRows.map((h) => h.date));
+  const weekendSet = new Set(settings.weekendDays || [0, 6]);
+  const [my, mm] = month.split('-').map(Number);
+  const daysInMonth = new Date(my, mm, 0).getDate();
+  const monthStart = `${month}-01`;
+  const monthEnd = `${month}-${String(daysInMonth).padStart(2, '0')}`;
+
+  const countRangeWorkingAndHolidays = (startStr, endStr) => {
+    if (!startStr || !endStr || startStr > endStr) return { working: 0, holidays: 0 };
+    let working = 0;
+    let holidays = 0;
+    const s = new Date(`${startStr}T00:00:00`);
+    const e = new Date(`${endStr}T00:00:00`);
+    for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
+      const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      if (weekendSet.has(d.getDay())) continue;
+      if (holidaySet.has(ds)) holidays += 1;
+      else working += 1;
+    }
+    return { working, holidays };
+  };
 
   const rows = employees.map((emp) => {
     const empAtt = attRows.filter((a) => a.employee_id === emp.id);
@@ -1087,9 +1135,37 @@ export function buildMonthlyReport(month) {
     const unpaidDeduction = Math.round((absentDays + unpaidLeaveDays + lateLopDays) * perDayRate + halfDays * 0.5 * perDayRate);
     const overtimePay = Math.round((totalOvertimeSeconds / 3600) * sal.overtime_hourly_rate);
     const totalDeductions = sal.pf_deduction + sal.tax_deduction + unpaidDeduction;
-    const netSalary = Math.max(0, Math.round(grossSalary + overtimePay - totalDeductions));
-    const proratedGross = Math.round(grossSalary * prorationRatio);
-    const proratedNet = Math.max(0, Math.round(proratedGross + overtimePay - Math.round((sal.pf_deduction + sal.tax_deduction) * prorationRatio) - unpaidDeduction));
+
+    const joiningDate = (emp.joining_date || (emp.created_at ? String(emp.created_at).slice(0, 10) : monthStart)).slice(0, 10);
+    let netSalary = 0;
+    let proratedNet = 0;
+
+    if (joiningDate <= monthEnd && month <= currentMonth) {
+      const empStart = joiningDate > monthStart ? joiningDate : monthStart;
+      const mtdEnd = month === currentMonth ? todayDate : monthEnd;
+      const mtdCounts = countRangeWorkingAndHolidays(empStart, mtdEnd);
+      const fullCounts = countRangeWorkingAndHolidays(empStart, monthEnd);
+
+      const attendedDays = presentDays + lateDays + halfDays * 0.5;
+      const paidLeaveDays = Math.max(0, leaveDays - unpaidLeaveDays);
+      const paidDaysMtd = attendedDays + paidLeaveDays + mtdCounts.holidays;
+
+      const employedMonthRatio = Math.min(1, (fullCounts.working + fullCounts.holidays) / Math.max(1, sal.working_days_per_month));
+      const mtdRatio = Math.min(1, paidDaysMtd / Math.max(1, sal.working_days_per_month));
+
+      const employedGrossProj = empStart > monthStart
+        ? Math.min(grossSalary, Math.round(perDayRate * (fullCounts.working + fullCounts.holidays)))
+        : grossSalary;
+      const projFixedDed = Math.round((sal.pf_deduction + sal.tax_deduction) * employedMonthRatio);
+      netSalary = Math.max(0, Math.round(employedGrossProj + overtimePay - projFixedDed - unpaidDeduction));
+
+      const proratedGross = Math.min(grossSalary, Math.round(perDayRate * paidDaysMtd));
+      const mtdFixedDed = Math.round((sal.pf_deduction + sal.tax_deduction) * mtdRatio);
+      const lateLopDed = Math.round(lateLopDays * perDayRate);
+      proratedNet = paidDaysMtd <= 0 && overtimePay <= 0
+        ? 0
+        : Math.max(0, Math.round(proratedGross + overtimePay - mtdFixedDed - lateLopDed));
+    }
 
     return {
       employee_id: emp.id,

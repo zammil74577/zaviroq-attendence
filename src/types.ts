@@ -138,6 +138,8 @@ export interface Employee {
   shift_end: string;
   status: LiveStatus;
   avatar_color: string;
+  joining_date?: string | null;
+  is_active?: boolean | number;
   must_change_pin?: number;
   tracking_consent_at?: string | null;
   last_seen_at: string | null;

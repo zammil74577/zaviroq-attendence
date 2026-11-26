@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { UserPlus, Megaphone, Mail, Clock, Search, Edit3, X } from 'lucide-react';
 import type { Employee, ViewMode } from '../types';
 import { getInitials } from '../utils/format';
@@ -17,6 +17,7 @@ interface DirectoryTabProps {
     designation: string;
     shift_start: string;
     shift_end: string;
+    joining_date?: string;
   }) => Promise<void>;
   onPostAnnouncement: (payload: { title: string; message: string; priority: 'normal' | 'important' }) => Promise<void>;
 }
@@ -30,6 +31,8 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
   onPostAnnouncement,
 }) => {
   const [search, setSearch] = useState('');
+  const [showInactive, setShowInactive] = useState(false);
+  const [allEmployees, setAllEmployees] = useState<Employee[] | null>(null);
   const [showEmpModal, setShowEmpModal] = useState(false);
   const [showAnnModal, setShowAnnModal] = useState(false);
   const [editingEmp, setEditingEmp] = useState<Employee | null>(null);
@@ -42,12 +45,31 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
   const [designation, setDesignation] = useState('');
   const [shiftStart, setShiftStart] = useState('09:30');
   const [shiftEnd, setShiftEnd] = useState('17:30');
+  const [joiningDate, setJoiningDate] = useState('');
 
   const [annTitle, setAnnTitle] = useState('');
   const [annMsg, setAnnMsg] = useState('');
   const [annPriority, setAnnPriority] = useState<'normal' | 'important'>('important');
 
-  const filtered = employees.filter(
+  const loadWithInactive = async () => {
+    const res = await fetch('/api/dashboard?includeInactive=true');
+    if (res.ok) {
+      const json = await res.json();
+      setAllEmployees(Array.isArray(json.employees) ? json.employees : []);
+    }
+  };
+
+  useEffect(() => {
+    if (showInactive) {
+      loadWithInactive();
+    } else {
+      setAllEmployees(null);
+    }
+  }, [showInactive, employees]);
+
+  const sourceList = showInactive && allEmployees ? allEmployees : employees;
+
+  const filtered = sourceList.filter(
     (e) =>
       e.name.toLowerCase().includes(search.toLowerCase()) ||
       e.emp_code.toLowerCase().includes(search.toLowerCase()) ||
@@ -65,10 +87,12 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
       designation,
       shift_start: shiftStart,
       shift_end: shiftEnd,
+      joining_date: joiningDate || undefined,
     });
     setName('');
     setEmail('');
     setDesignation('');
+    setJoiningDate('');
     setShowEmpModal(false);
   };
 
@@ -85,11 +109,13 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
         role: editingEmp.role,
         shift_start: editingEmp.shift_start,
         shift_end: editingEmp.shift_end,
+        joining_date: editingEmp.joining_date || undefined,
       }),
     });
     if (res.ok) {
       setEditingEmp(null);
       await onRefresh();
+      if (showInactive) await loadWithInactive();
     }
   };
 
@@ -131,16 +157,29 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
         )}
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search employees by name, code, department..."
-          className="w-full rounded-xl border border-slate-800 bg-slate-900/80 pl-9 pr-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none"
-        />
+      {/* Search + Show Inactive filter */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[240px] max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search employees by name, code, department..."
+            className="w-full rounded-xl border border-slate-800 bg-slate-900/80 pl-9 pr-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none"
+          />
+        </div>
+        {viewMode === 'admin' && (
+          <label className="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-2 text-xs text-slate-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showInactive}
+              onChange={(e) => setShowInactive(e.target.checked)}
+              className="rounded border-slate-700 bg-slate-950"
+            />
+            Show inactive
+          </label>
+        )}
       </div>
 
       {actionMsg && (
@@ -167,7 +206,14 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
                     {getInitials(emp.name)}
                   </div>
                   <div>
-                    <div className="font-semibold text-white">{emp.name}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-white">{emp.name}</span>
+                      {(emp.is_active === false || emp.is_active === 0) && (
+                        <span className="rounded-md border border-rose-500/30 bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-rose-300">
+                          Inactive
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xs text-slate-400">{emp.designation}</div>
                   </div>
                 </div>
@@ -219,27 +265,51 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
                     >
                       Reset PIN
                     </button>
-                    <button
-                      disabled={isSelf}
-                      title={isSelf ? 'Cannot deactivate your own account' : 'Deactivate employee'}
-                      onClick={async () => {
-                        if (!window.confirm(`Deactivate ${emp.name}? History will be preserved.`)) return;
-                        const r = await fetch(`/api/employees/${emp.id}`, {
-                          method: 'PATCH',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ is_active: 0 }),
-                        });
-                        const j = await r.json();
-                        if (!r.ok) {
-                          setActionMsg(j.error || 'Cannot deactivate employee');
-                          return;
-                        }
-                        await onRefresh();
-                      }}
-                      className="flex-1 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 disabled:opacity-40 py-1.5 text-[11px] font-semibold text-rose-300 cursor-pointer"
-                    >
-                      Deactivate
-                    </button>
+                    {(emp.is_active === false || emp.is_active === 0) ? (
+                      <button
+                        onClick={async () => {
+                          const r = await fetch(`/api/employees/${emp.id}`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ is_active: 1 }),
+                          });
+                          const j = await r.json();
+                          if (!r.ok) {
+                            setActionMsg(j.error || 'Failed to reactivate employee');
+                            return;
+                          }
+                          setActionMsg(`Reactivated ${emp.name}.`);
+                          await onRefresh();
+                          await loadWithInactive();
+                        }}
+                        className="flex-1 rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 py-1.5 text-[11px] font-semibold text-emerald-300 cursor-pointer"
+                      >
+                        Reactivate
+                      </button>
+                    ) : (
+                      <button
+                        disabled={isSelf}
+                        title={isSelf ? 'Cannot deactivate your own account' : 'Deactivate employee'}
+                        onClick={async () => {
+                          if (!window.confirm(`Deactivate ${emp.name}? History will be preserved.`)) return;
+                          const r = await fetch(`/api/employees/${emp.id}`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ is_active: 0 }),
+                          });
+                          const j = await r.json();
+                          if (!r.ok) {
+                            setActionMsg(j.error || 'Cannot deactivate employee');
+                            return;
+                          }
+                          await onRefresh();
+                          if (showInactive) await loadWithInactive();
+                        }}
+                        className="flex-1 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 disabled:opacity-40 py-1.5 text-[11px] font-semibold text-rose-300 cursor-pointer"
+                      >
+                        Deactivate
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -302,6 +372,15 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
                   className="rounded-xl border border-slate-700 bg-slate-950 px-2.5 py-2 text-sm text-white"
                 />
               </div>
+              <div className="flex items-center justify-between gap-3">
+                <label className="text-xs text-slate-400">Joining Date</label>
+                <input
+                  type="date"
+                  value={editingEmp.joining_date ? String(editingEmp.joining_date).slice(0, 10) : ''}
+                  onChange={(e) => setEditingEmp({ ...editingEmp, joining_date: e.target.value })}
+                  className="rounded-xl border border-slate-700 bg-slate-950 px-2.5 py-2 text-sm text-white"
+                />
+              </div>
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setEditingEmp(null)} className="rounded-xl border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-300">
                   Cancel
@@ -340,6 +419,10 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
                 </select>
                 <input type="time" value={shiftStart} onChange={(e) => setShiftStart(e.target.value)} className="rounded-xl border border-slate-700 bg-slate-950 px-2.5 py-2 text-sm text-white" />
                 <input type="time" value={shiftEnd} onChange={(e) => setShiftEnd(e.target.value)} className="rounded-xl border border-slate-700 bg-slate-950 px-2.5 py-2 text-sm text-white" />
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <label className="text-xs text-slate-400">Joining Date</label>
+                <input type="date" value={joiningDate} onChange={(e) => setJoiningDate(e.target.value)} className="rounded-xl border border-slate-700 bg-slate-950 px-2.5 py-2 text-sm text-white" />
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setShowEmpModal(false)} className="rounded-xl border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-300">Cancel</button>

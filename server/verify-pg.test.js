@@ -24,7 +24,9 @@ async function run() {
     vercelJson.rewrites.some((r) => r.source === '/api/(.*)' && r.destination === '/api/index.js'),
     'vercel.json routes /api/* to /api/index.js'
   );
-  ok('vercel.json crons and rewrites valid');
+  assert.ok(Array.isArray(vercelJson.regions) && vercelJson.regions.includes('icn1'), 'vercel.json pins region icn1');
+  assert.ok(Array.isArray(vercelJson.headers) && vercelJson.headers.length > 0, 'vercel.json defines security headers');
+  ok('vercel.json crons, region, security headers, and rewrites valid');
 
   const migrationSql = fs.readFileSync(path.resolve('supabase/migrations/001_init.sql'), 'utf8');
   const expectedTables = [
@@ -52,9 +54,16 @@ async function run() {
   assert.equal(validateStrongPin('849201'), null, 'strong 6-digit PIN accepted');
   ok('api/index.js & server/app.js import cleanly and PIN policy works');
 
-  // 2. Live Postgres checks (run when DATABASE_URL is configured)
-  if (!process.env.DATABASE_URL) {
-    skip('Live Postgres /healthz, cron auth, and audit trigger tests', 'DATABASE_URL not set (no local Docker/Postgres)');
+  // 2. Live Postgres checks (never touch production DB unless ALLOW_PROD_PG_TEST=true)
+  const dbUrl = process.env.DATABASE_URL || '';
+  const isLocalDb = /localhost|127\.0\.0\.1|postgres:5432/.test(dbUrl);
+  if (!dbUrl || (!isLocalDb && process.env.ALLOW_PROD_PG_TEST !== 'true')) {
+    skip(
+      'Live Postgres /healthz, cron auth, and audit trigger tests',
+      !dbUrl
+        ? 'DATABASE_URL not set (no local Docker/Postgres)'
+        : 'Refusing to run test writes against non-local DATABASE_URL (set ALLOW_PROD_PG_TEST=true to override)'
+    );
     console.log(`\nSummary: ${passed} passed, ${skipped} skipped, 0 failed.`);
     return;
   }

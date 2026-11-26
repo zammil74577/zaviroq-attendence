@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS employees (
   shift_end TEXT NOT NULL DEFAULT '17:30',
   status TEXT NOT NULL DEFAULT 'offline',
   avatar_color TEXT NOT NULL DEFAULT '#6366f1',
+  joining_date DATE DEFAULT CURRENT_DATE,
   pin TEXT NOT NULL,
   must_change_pin BOOLEAN NOT NULL DEFAULT TRUE,
   failed_login_attempts INTEGER NOT NULL DEFAULT 0,

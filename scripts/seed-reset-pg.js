@@ -86,10 +86,10 @@ async function main() {
     const { rows } = await client.query(
       `INSERT INTO employees (
         emp_code, name, email, role, department, designation,
-        shift_start, shift_end, status, avatar_color, pin, must_change_pin, is_active
+        shift_start, shift_end, status, avatar_color, joining_date, pin, must_change_pin, is_active
       ) VALUES (
         $1, $2, $3, 'admin', 'Executive', 'Master Administrator',
-        '09:30', '18:30', 'offline', '#6366f1', $4, TRUE, TRUE
+        '09:30', '17:30', 'offline', '#6366f1', (NOW() AT TIME ZONE 'Asia/Kolkata')::date, $4, TRUE, TRUE
       ) RETURNING id, emp_code, name, email, role, must_change_pin`,
       [adminCode, adminName, adminEmail, pinHash]
     );

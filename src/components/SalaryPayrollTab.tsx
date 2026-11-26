@@ -11,12 +11,23 @@ interface SalaryPayrollTabProps {
 export const SalaryPayrollTab: React.FC<SalaryPayrollTabProps> = ({ viewMode, currentUser }) => {
   const [month, setMonth] = useState<string>(getCurrentMonthISO());
   const [report, setReport] = useState<MonthlyReportData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<SalaryStructure | null>(null);
   const [saving, setSaving] = useState(false);
 
   const loadPayroll = async () => {
-    const res = await fetch(`/api/reports/monthly?month=${month}`);
-    if (res.ok) setReport(await res.json());
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/reports/monthly?month=${month}`);
+      if (!res.ok) throw new Error(`Failed to load payroll (${res.status})`);
+      setReport(await res.json());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load payroll');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -104,6 +115,32 @@ export const SalaryPayrollTab: React.FC<SalaryPayrollTabProps> = ({ viewMode, cu
         </div>
       </div>
 
+      {/* Loading / Error / Summary Cards */}
+      {error && (
+        <div className="rounded-2xl border border-rose-500/40 bg-rose-950/40 p-4 flex items-center justify-between gap-3 text-xs text-rose-200">
+          <span>{error}</span>
+          <button
+            onClick={loadPayroll}
+            className="rounded-lg bg-rose-600 hover:bg-rose-500 px-3 py-1.5 font-semibold text-white cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {loading && !report ? (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-20 animate-pulse rounded-2xl border border-slate-800 bg-slate-900/70" />
+            ))}
+          </div>
+          <div className="h-64 animate-pulse rounded-2xl border border-slate-800 bg-slate-900/70 flex items-center justify-center text-xs text-slate-400">
+            Loading payroll data...
+          </div>
+        </div>
+      ) : (
+        <>
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <div className="rounded-2xl border border-slate-800 bg-slate-900/75 p-4">
@@ -197,6 +234,8 @@ export const SalaryPayrollTab: React.FC<SalaryPayrollTabProps> = ({ viewMode, cu
           </tbody>
         </table>
       </div>
+        </>
+      )}
 
       {/* Edit Salary Structure Modal */}
       {editing && (

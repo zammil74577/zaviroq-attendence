@@ -9,6 +9,84 @@ interface GroupedAuditEntry extends AuditLogEntry {
   children?: AuditLogEntry[];
 }
 
+function formatAuditValue(val: unknown): { preview: string; pretty: string; isExpandable: boolean } {
+  if (val === null || val === undefined || val === '') {
+    return { preview: '—', pretty: '', isExpandable: false };
+  }
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        const pretty = JSON.stringify(parsed, null, 2);
+        const oneLine = JSON.stringify(parsed);
+        return {
+          preview: oneLine.length > 64 ? `${oneLine.slice(0, 64)}…` : oneLine,
+          pretty,
+          isExpandable: pretty.includes('\n') || oneLine.length > 64,
+        };
+      } catch {
+        return {
+          preview: trimmed.length > 64 ? `${trimmed.slice(0, 64)}…` : trimmed,
+          pretty: trimmed,
+          isExpandable: trimmed.length > 64,
+        };
+      }
+    }
+    return {
+      preview: trimmed.length > 64 ? `${trimmed.slice(0, 64)}…` : trimmed,
+      pretty: trimmed,
+      isExpandable: trimmed.length > 64,
+    };
+  }
+  if (typeof val === 'object') {
+    try {
+      const pretty = JSON.stringify(val, null, 2);
+      const oneLine = JSON.stringify(val);
+      return {
+        preview: oneLine.length > 64 ? `${oneLine.slice(0, 64)}…` : oneLine,
+        pretty,
+        isExpandable: true,
+      };
+    } catch {
+      return { preview: String(val), pretty: String(val), isExpandable: false };
+    }
+  }
+  const s = String(val);
+  return { preview: s, pretty: s, isExpandable: false };
+}
+
+const AuditValueCell: React.FC<{ value: unknown; toneClass?: string }> = ({
+  value,
+  toneClass = 'text-slate-300',
+}) => {
+  const [open, setOpen] = useState(false);
+  const { preview, pretty, isExpandable } = formatAuditValue(value);
+
+  if (!isExpandable) {
+    return <span className={`font-mono-num text-[11px] ${toneClass}`}>{preview}</span>;
+  }
+
+  return (
+    <div className="max-w-[260px]">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`inline-flex items-center gap-1 text-left font-mono-num text-[11px] hover:underline cursor-pointer ${toneClass}`}
+        title="Click to expand JSON"
+      >
+        {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+        <span className="truncate max-w-[230px]">{preview}</span>
+      </button>
+      {open && (
+        <pre className="mt-1.5 max-h-48 overflow-auto rounded-lg border border-slate-800 bg-slate-950 p-2 text-[10px] leading-relaxed text-slate-200 whitespace-pre-wrap break-all">
+          {pretty}
+        </pre>
+      )}
+    </div>
+  );
+};
+
 export const AuditLogsTab: React.FC = () => {
   const [logs, setLogs] = useState<GroupedAuditEntry[]>([]);
   const [total, setTotal] = useState(0);
@@ -30,6 +108,7 @@ export const AuditLogsTab: React.FC = () => {
       page: String(page),
       pageSize: String(pageSize),
       grouped: 'true',
+      excludeTest: 'true',
     });
     if (actorFilter !== 'all') params.set('actor', actorFilter);
     if (actionFilter) params.set('action', actionFilter);
@@ -38,7 +117,10 @@ export const AuditLogsTab: React.FC = () => {
     fetch(`/api/audit-logs?${params.toString()}`)
       .then((r) => (r.ok ? r.json() : { rows: [], total: 0 }))
       .then((data) => {
-        const rows = Array.isArray(data.rows) ? data.rows : [];
+        const rawRows = Array.isArray(data.rows) ? data.rows : [];
+        const rows = rawRows.filter(
+          (r: GroupedAuditEntry) => r.actor_name !== 'Test' && r.action !== 'PG_VERIFY'
+        );
         setLogs(page === 1 ? rows : (prev) => [...prev, ...rows]);
         setTotal(Number(data.total || rows.length));
       })
@@ -90,6 +172,7 @@ export const AuditLogsTab: React.FC = () => {
           <option value="CREATE_EMPLOYEE">CREATE_EMPLOYEE</option>
           <option value="EDIT_EMPLOYEE">EDIT_EMPLOYEE</option>
           <option value="DEACTIVATE_EMPLOYEE">DEACTIVATE_EMPLOYEE</option>
+          <option value="REACTIVATE_EMPLOYEE">REACTIVATE_EMPLOYEE</option>
           <option value="RESET_PIN">RESET_PIN</option>
           <option value="CHANGE_PIN">CHANGE_PIN</option>
           <option value="UPDATE_SETTINGS">UPDATE_SETTINGS</option>
@@ -133,13 +216,18 @@ export const AuditLogsTab: React.FC = () => {
           <tbody className="divide-y divide-slate-800/70">
             {logs.map((l) => {
               const isExpanded = Boolean(expandedGroups[l.id]);
+              const dateStr = String(l.created_at || '').slice(0, 10);
+              const groupedLabel =
+                typeof l.new_value === 'string'
+                  ? l.new_value
+                  : `Recalculated late status — ${l.group_count || l.children?.length || 0} records`;
               return (
                 <React.Fragment key={`${l.action}-${l.id}`}>
-                  <tr className="hover:bg-slate-800/30 text-xs">
+                  <tr className="hover:bg-slate-800/30 text-xs align-top">
                     <td className="px-4 py-3 font-mono-num text-slate-400 whitespace-nowrap">
-                      {l.created_at.slice(0, 10)} {formatClockTime(l.created_at)}
+                      {dateStr} {formatClockTime(l.created_at)}
                     </td>
-                    <td className="px-4 py-3 font-semibold text-white whitespace-nowrap">{l.actor_name}</td>
+                    <td className="px-4 py-3 font-semibold text-white whitespace-nowrap">{l.actor_name || 'System'}</td>
                     <td className="px-4 py-3">
                       {l.is_grouped ? (
                         <button
@@ -147,7 +235,7 @@ export const AuditLogsTab: React.FC = () => {
                           className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-200 cursor-pointer"
                         >
                           {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                          {l.new_value}
+                          {groupedLabel}
                         </button>
                       ) : (
                         <span className="inline-flex items-center gap-1 rounded-md border border-indigo-500/30 bg-indigo-500/15 px-2 py-0.5 text-[11px] font-semibold text-indigo-300">
@@ -156,24 +244,30 @@ export const AuditLogsTab: React.FC = () => {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 font-mono-num text-slate-300">
+                    <td className="px-4 py-3 font-mono-num text-slate-300 whitespace-nowrap">
                       {l.entity_type} #{l.entity_id || '—'}
                     </td>
-                    <td className="px-4 py-3 text-slate-400 max-w-[220px] truncate" title={l.old_value || ''}>
-                      {l.old_value || '—'}
+                    <td className="px-4 py-3">
+                      <AuditValueCell value={l.old_value} toneClass="text-slate-400" />
                     </td>
-                    <td className="px-4 py-3 text-emerald-300 max-w-[260px] truncate" title={l.new_value || ''}>
-                      {l.new_value || '—'}
+                    <td className="px-4 py-3">
+                      <AuditValueCell value={l.new_value} toneClass="text-emerald-300" />
                     </td>
                   </tr>
                   {l.is_grouped && isExpanded && l.children?.map((child) => (
-                    <tr key={`child-${child.id}`} className="bg-slate-950/60 text-[11px] text-slate-400">
-                      <td className="px-6 py-2 font-mono-num">{child.created_at.slice(0, 10)} {formatClockTime(child.created_at)}</td>
-                      <td className="px-4 py-2">{child.actor_name}</td>
+                    <tr key={`child-${child.id}`} className="bg-slate-950/60 text-[11px] text-slate-400 align-top">
+                      <td className="px-6 py-2 font-mono-num whitespace-nowrap">
+                        {String(child.created_at || '').slice(0, 10)} {formatClockTime(child.created_at)}
+                      </td>
+                      <td className="px-4 py-2">{child.actor_name || 'System'}</td>
                       <td className="px-4 py-2 text-indigo-300">{child.action}</td>
-                      <td className="px-4 py-2 font-mono-num">{child.entity_type} #{child.entity_id}</td>
-                      <td className="px-4 py-2 truncate max-w-[200px]">{child.old_value || '—'}</td>
-                      <td className="px-4 py-2 truncate max-w-[240px]">{child.new_value || '—'}</td>
+                      <td className="px-4 py-2 font-mono-num">{child.entity_type} #{child.entity_id || '—'}</td>
+                      <td className="px-4 py-2">
+                        <AuditValueCell value={child.old_value} toneClass="text-slate-400" />
+                      </td>
+                      <td className="px-4 py-2">
+                        <AuditValueCell value={child.new_value} toneClass="text-emerald-300" />
+                      </td>
                     </tr>
                   ))}
                 </React.Fragment>

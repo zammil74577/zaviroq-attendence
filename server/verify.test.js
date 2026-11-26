@@ -492,3 +492,86 @@ test('Pre-launch: tracking_mode recorded, consent gate, /healthz, and backup scr
   assert.ok(parsed.sizeBytes > 0);
   fs.rmSync(backupDir, { recursive: true, force: true });
 });
+
+test('Production fixes: joining_date proration (joined 25th, 1 day attended -> ~1-2 days pay, not 19)', async () => {
+  const { createSessionToken, SESSION_COOKIE_NAME } = await import('./auth.js');
+  const freshAdminCookie = `${SESSION_COOKIE_NAME}=${createSessionToken(1)}`;
+  const month = new Date().toISOString().slice(0, 7);
+  const joinDay25 = `${month}-25`;
+
+  const createRes = await fetch(`${baseUrl}/api/employees`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: freshAdminCookie },
+    body: JSON.stringify({
+      name: 'Mid Month Joiner',
+      email: 'joiner25@zaviroq.com',
+      department: 'Engineering',
+      designation: 'Engineer',
+      joining_date: joinDay25,
+    }),
+  });
+  assert.equal(createRes.status, 201);
+  const joiner = await createRes.json();
+
+  // Record 1 attended day on the 25th
+  db.prepare(`INSERT INTO attendance (employee_id, date, clock_in, status) VALUES (?, ?, ?, 'present')`)
+    .run(joiner.id, joinDay25, `${joinDay25}T04:00:00.000Z`);
+
+  const repRes = await fetch(`${baseUrl}/api/reports/monthly?month=${month}`, {
+    headers: { Cookie: freshAdminCookie },
+  });
+  assert.equal(repRes.status, 200);
+  const rep = await repRes.json();
+  const row = rep.rows.find((r) => r.employee_id === joiner.id);
+  assert.ok(row, 'joiner appears in monthly report');
+  // Default gross = 75,000 / 22 = ~3,409/day. 1 attended day (+ at most 0-1 holiday) must be < 10,000, not 19 days (~60,000+)
+  assert.ok(row.salary.prorated_net_salary > 2000 && row.salary.prorated_net_salary < 10000,
+    `Expected ~1-2 days pay, got ${row.salary.prorated_net_salary}`);
+});
+
+test('Production fixes: deactivation auto clock-out (Deactivated) & reactivation audit log', async () => {
+  const { createSessionToken, SESSION_COOKIE_NAME } = await import('./auth.js');
+  const freshAdminCookie = `${SESSION_COOKIE_NAME}=${createSessionToken(1)}`;
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Create a fresh employee and give them an open attendance record
+  const createRes = await fetch(`${baseUrl}/api/employees`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: freshAdminCookie },
+    body: JSON.stringify({
+      name: 'Temp Worker',
+      email: 'tempworker@zaviroq.com',
+      department: 'Ops',
+      designation: 'Analyst',
+    }),
+  });
+  assert.equal(createRes.status, 201);
+  const emp = await createRes.json();
+  db.prepare(`INSERT INTO attendance (employee_id, date, clock_in, status) VALUES (?, ?, ?, 'present')`)
+    .run(emp.id, today, new Date().toISOString());
+
+  // Deactivate -> auto clock-out with reason 'Deactivated'
+  const deactRes = await fetch(`${baseUrl}/api/employees/${emp.id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Cookie: freshAdminCookie },
+    body: JSON.stringify({ is_active: 0 }),
+  });
+  assert.equal(deactRes.status, 200);
+
+  const att = db.prepare(`SELECT * FROM attendance WHERE employee_id = ? AND date = ?`).get(emp.id, today);
+  assert.ok(att.clock_out, 'Deactivation auto clocked out open attendance');
+  assert.ok(String(att.notes).includes('Deactivated'));
+
+  const outLog = db.prepare(`SELECT * FROM activity_logs WHERE employee_id = ? AND type = 'clock_out' ORDER BY id DESC LIMIT 1`).get(emp.id);
+  assert.equal(outLog?.reason, 'Deactivated');
+
+  // Reactivate -> audit logged as REACTIVATE_EMPLOYEE
+  const reactRes = await fetch(`${baseUrl}/api/employees/${emp.id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Cookie: freshAdminCookie },
+    body: JSON.stringify({ is_active: 1 }),
+  });
+  assert.equal(reactRes.status, 200);
+  const audit = db.prepare(`SELECT * FROM audit_logs WHERE action = 'REACTIVATE_EMPLOYEE' AND entity_id = ?`).get(String(emp.id));
+  assert.ok(audit, 'REACTIVATE_EMPLOYEE audit log created');
+});

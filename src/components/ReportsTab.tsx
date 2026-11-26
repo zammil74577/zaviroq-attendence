@@ -24,20 +24,27 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
   const [reportMode, setReportMode] = useState<'daily' | 'monthly'>('monthly');
   const [month, setMonth] = useState<string>(getCurrentMonthISO());
   const [monthly, setMonthly] = useState<MonthlyReportData | null>(null);
+  const [loadingMonthly, setLoadingMonthly] = useState<boolean>(true);
+  const [errorMonthly, setErrorMonthly] = useState<string | null>(null);
+
+  const loadMonthly = async () => {
+    setLoadingMonthly(true);
+    setErrorMonthly(null);
+    try {
+      const endpoint = myMonthlyOnly ? `/api/reports/me?month=${month}` : `/api/reports/monthly?month=${month}`;
+      const res = await fetch(endpoint);
+      if (!res.ok) throw new Error(`Failed to load monthly report (${res.status})`);
+      setMonthly(await res.json());
+    } catch (err) {
+      setErrorMonthly(err instanceof Error ? err.message : 'Failed to load monthly report');
+    } finally {
+      setLoadingMonthly(false);
+    }
+  };
 
   useEffect(() => {
-    let active = true;
-    const endpoint = myMonthlyOnly ? `/api/reports/me?month=${month}` : `/api/reports/monthly?month=${month}`;
-    fetch(endpoint)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((json) => {
-        if (active && json) setMonthly(json);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [month, data.summary.date, myMonthlyOnly]);
+    loadMonthly();
+  }, [month, myMonthlyOnly]);
 
   const dailyEmployees =
     viewMode === 'employee' && currentUser
@@ -160,6 +167,20 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
               ))}
             </tbody>
           </table>
+        </div>
+      ) : errorMonthly ? (
+        <div className="rounded-2xl border border-rose-500/40 bg-rose-950/40 p-5 flex items-center justify-between gap-3 text-xs text-rose-200">
+          <span>{errorMonthly}</span>
+          <button
+            onClick={loadMonthly}
+            className="rounded-lg bg-rose-600 hover:bg-rose-500 px-3 py-1.5 font-semibold text-white cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      ) : loadingMonthly && !monthly ? (
+        <div className="h-64 animate-pulse rounded-2xl border border-slate-800 bg-slate-900/70 flex items-center justify-center text-xs text-slate-400">
+          Loading monthly report...
         </div>
       ) : (
         <div className="space-y-5">

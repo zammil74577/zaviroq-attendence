@@ -45,11 +45,23 @@ export function useIdleDetector({
   const [pausedByOtherTab, setPausedByOtherTab] = useState(false);
   const [trackingMode, setTrackingMode] = useState<'system' | 'tab_only'>('tab_only');
 
-  const sessionIdRef = useRef<string>(
-    typeof crypto !== 'undefined' && crypto.randomUUID
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  );
+  const getOrCreateTabSessionId = () => {
+    try {
+      const existing = sessionStorage.getItem('zaviroq_tab_session_id');
+      if (existing) return existing;
+      const created =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      sessionStorage.setItem('zaviroq_tab_session_id', created);
+      return created;
+    } catch {
+      return typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+  };
+  const sessionIdRef = useRef<string>(getOrCreateTabSessionId());
   const lastActivityRef = useRef<number>(Date.now());
   const stateRef = useRef<'active' | 'idle' | 'break'>(liveState);
   const tickCountRef = useRef<number>(0);

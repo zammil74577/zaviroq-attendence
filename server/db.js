@@ -111,6 +111,7 @@ export function initSchema() {
       shift_end TEXT NOT NULL DEFAULT '17:30',
       status TEXT NOT NULL DEFAULT 'offline',
       avatar_color TEXT NOT NULL DEFAULT '#6366f1',
+      joining_date TEXT,
       pin TEXT NOT NULL DEFAULT '1234',
       failed_login_attempts INTEGER NOT NULL DEFAULT 0,
       locked_until TEXT,
@@ -277,6 +278,10 @@ export function runMigrations() {
   safeAlter(`ALTER TABLE employees ADD COLUMN active_session_id TEXT`);
   safeAlter(`ALTER TABLE employees ADD COLUMN last_heartbeat_at TEXT`);
   safeAlter(`ALTER TABLE employees ADD COLUMN last_heartbeat_state TEXT`);
+  safeAlter(`ALTER TABLE employees ADD COLUMN joining_date TEXT`);
+  try {
+    db.exec(`UPDATE employees SET joining_date = substr(created_at, 1, 10) WHERE joining_date IS NULL`);
+  } catch { /* ignore */ }
   safeAlter(`ALTER TABLE attendance ADD COLUMN missed_clock_out INTEGER NOT NULL DEFAULT 0`);
   safeAlter(`ALTER TABLE attendance ADD COLUMN manual_override INTEGER NOT NULL DEFAULT 0`);
   safeAlter(`ALTER TABLE attendance ADD COLUMN tracking_mode TEXT NOT NULL DEFAULT 'tab_only'`);

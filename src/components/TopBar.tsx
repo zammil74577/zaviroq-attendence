@@ -100,7 +100,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   }, [selectedDate, isSyncing]);
 
   const isClockedIn = Boolean(currentUser?.clock_in && !currentUser?.clock_out);
-  const effectiveLiveStatus = isClockedIn ? liveState : 'offline';
+  const effectiveLiveStatus = isClockedIn ? (currentUser?.status || liveState) : 'offline';
 
   return (
     <header className="sticky top-0 z-30 border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-md px-4 sm:px-6 py-3">

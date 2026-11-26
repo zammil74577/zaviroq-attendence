@@ -225,6 +225,9 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                         <span className="flex items-center gap-1.5">
                           <AttendanceBadge status={emp.attendance_status} />
                           <span>In: {formatClockTime(emp.clock_in)}</span>
+                          <span className="text-slate-500 font-mono-num">
+                            ({emp.shift_start || data.officeSchedule?.shiftStart || '09:30'}–{emp.shift_end || data.officeSchedule?.shiftEnd || '17:30'})
+                          </span>
                         </span>
                         <span className="font-mono-num text-slate-300">
                           {formatHM(emp.active_seconds)} active / {formatHM(emp.idle_seconds)} idle

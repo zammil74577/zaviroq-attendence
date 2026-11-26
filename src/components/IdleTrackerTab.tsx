@@ -100,7 +100,7 @@ export const IdleTrackerTab: React.FC<IdleTrackerTabProps> = ({
                     <Coffee className="h-3.5 w-3.5" />
                     {liveState === 'break' ? 'End Break' : 'Start Break'}
                   </button>
-                  {viewMode === 'admin' && (
+                  {demoMode && viewMode === 'admin' && (
                     <button
                       onClick={onForceIdle}
                       className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 px-3.5 py-2 text-xs font-semibold text-amber-200 cursor-pointer"
