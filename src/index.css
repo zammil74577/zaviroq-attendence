@@ -182,7 +182,28 @@
   color: #FFFFFF !important;
 }
 
-/* High-contrast status text in light mode */
+/* High-contrast status text & banner tints in light mode */
+[data-theme="light"] .bg-amber-500\/15,
+[data-theme="light"] .bg-amber-500\/10 {
+  background-color: #FFF4E0 !important;
+}
+[data-theme="light"] .bg-rose-500\/15,
+[data-theme="light"] .bg-rose-500\/10,
+[data-theme="light"] .bg-rose-950\/40 {
+  background-color: #FDECEC !important;
+}
+[data-theme="light"] .bg-emerald-500\/15,
+[data-theme="light"] .bg-emerald-500\/10 {
+  background-color: #E8F8EE !important;
+}
+[data-theme="light"] .bg-indigo-500\/15,
+[data-theme="light"] .bg-indigo-500\/10 {
+  background-color: #EFEAFF !important;
+}
+[data-theme="light"] .bg-sky-500\/15,
+[data-theme="light"] .bg-sky-500\/10 {
+  background-color: #E8F0FF !important;
+}
 [data-theme="light"] .text-emerald-300,
 [data-theme="light"] .text-emerald-200 {
   color: #15803D !important;

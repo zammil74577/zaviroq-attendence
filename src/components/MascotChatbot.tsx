@@ -117,7 +117,7 @@ export const MascotChatbot: React.FC<MascotChatbotProps> = ({
   };
 
   return (
-    <div className="fixed bottom-4 left-4 z-40 flex flex-col items-start gap-2">
+    <div className="fixed bottom-4 left-4 lg:left-[276px] z-40 flex flex-col items-start gap-2">
       {/* Expanded Floating Chatbot Window with Zavi OUTSIDE & ABOVE on the Top Border */}
       {isOpen && (
         <div className="relative mt-24 w-[360px] max-w-[calc(100vw-2rem)]">

@@ -523,7 +523,7 @@ const KpiCard: React.FC<{
           <div className="mt-1 text-[32px] leading-none font-extrabold tracking-tight font-heading text-[var(--zv-text)] tabular-nums">
             {value}
           </div>
-          <div className="mt-2 text-xs text-[var(--zv-muted)] truncate">{sub}</div>
+          <div className="mt-2 text-xs text-[var(--zv-muted)] leading-snug">{sub}</div>
         </div>
       </div>
     </div>

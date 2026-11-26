@@ -200,7 +200,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                     value={currentUser.id}
                     onChange={(e) => onSelectUser(Number(e.target.value))}
                     aria-label="Select active employee"
-                    className="appearance-none bg-transparent border-none text-xs font-semibold text-[var(--zv-text)] focus:outline-none cursor-pointer pr-5 max-w-[135px] sm:max-w-[200px] truncate"
+                    className="appearance-none bg-transparent border-none text-xs font-semibold text-[var(--zv-text)] focus:outline-none cursor-pointer pr-6 max-w-[145px] sm:max-w-[210px] truncate"
                   >
                     {employees.map((emp) => (
                       <option key={emp.id} value={emp.id}>
