@@ -68,16 +68,20 @@ export const IdleTrackerTab: React.FC<IdleTrackerTabProps> = ({
 
       {/* Personal Live Telemetry Card */}
       {currentUser && (
-        <div className="rounded-2xl border border-indigo-500/30 bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/30 p-5">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="zv-card-featured relative overflow-hidden p-5 sm:p-6">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -top-12 -right-12 h-44 w-44 rounded-full bg-white/15 blur-2xl"
+          />
+          <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div className="space-y-1">
-              <div className="flex items-center gap-2.5">
-                <span className="text-sm font-bold text-white">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <span className="text-base font-bold font-heading text-white zv-text-white-keep">
                   Live Session: {currentUser.name} ({currentUser.emp_code})
                 </span>
                 <LiveStatusBadge status={isClockedIn ? liveState : 'offline'} />
               </div>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-white/85 zv-text-white-keep">
                 {isClockedIn
                   ? `Inactivity timer: ${secondsSinceActivity}s / ${idleThresholdSeconds}s before auto-idle triggers`
                   : 'Clock in to start real-time active & idle telemetry tracking'}
@@ -89,7 +93,7 @@ export const IdleTrackerTab: React.FC<IdleTrackerTabProps> = ({
                 {!isClockedIn ? (
                   <button
                     onClick={onClockIn}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 px-4 py-2 text-xs font-semibold text-white cursor-pointer"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-white text-[#6D4AFF] hover:bg-white/90 px-4 py-2 text-xs font-bold shadow-sm cursor-pointer"
                   >
                     <Play className="h-3.5 w-3.5 fill-current" />
                     Clock In & Start Tracker
@@ -98,7 +102,7 @@ export const IdleTrackerTab: React.FC<IdleTrackerTabProps> = ({
                   <>
                     <button
                       onClick={onToggleBreak}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-sky-500/40 bg-sky-500/15 hover:bg-sky-500/25 px-3.5 py-2 text-xs font-semibold text-sky-200 cursor-pointer"
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-white/35 bg-white/20 hover:bg-white/30 backdrop-blur-xs px-3.5 py-2 text-xs font-semibold text-white cursor-pointer zv-text-white-keep"
                     >
                       <Coffee className="h-3.5 w-3.5" />
                       {liveState === 'break' ? 'End Break' : 'Start Break'}
@@ -106,7 +110,7 @@ export const IdleTrackerTab: React.FC<IdleTrackerTabProps> = ({
                     {demoMode && viewMode === 'admin' && (
                       <button
                         onClick={onForceIdle}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 px-3.5 py-2 text-xs font-semibold text-amber-200 cursor-pointer"
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-amber-300/50 bg-amber-400/20 hover:bg-amber-400/30 px-3.5 py-2 text-xs font-semibold text-white cursor-pointer zv-text-white-keep"
                       >
                         <PauseCircle className="h-3.5 w-3.5" />
                         Test Idle State
@@ -118,29 +122,29 @@ export const IdleTrackerTab: React.FC<IdleTrackerTabProps> = ({
             )}
           </div>
 
-          <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3.5">
-              <div className="text-xs text-slate-400">Active Desk Time</div>
-              <div className="mt-1 text-xl font-bold text-emerald-400 font-mono-num">
+          <div className="relative z-10 mt-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="rounded-2xl border border-white/80 bg-white/95 p-4 shadow-sm">
+              <div className="text-xs font-medium text-[#6B6785]">Active Desk Time</div>
+              <div className="mt-1 text-2xl font-extrabold text-[#16A34A] font-mono-num">
                 {formatDuration(currentUser.active_seconds)}
               </div>
             </div>
-            <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3.5">
-              <div className="text-xs text-slate-400">Idle Time</div>
-              <div className="mt-1 text-xl font-bold text-amber-400 font-mono-num">
+            <div className="rounded-2xl border border-white/80 bg-white/95 p-4 shadow-sm">
+              <div className="text-xs font-medium text-[#6B6785]">Idle Time</div>
+              <div className="mt-1 text-2xl font-extrabold text-[#D97706] font-mono-num">
                 {formatDuration(currentUser.idle_seconds)}
               </div>
             </div>
-            <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3.5">
-              <div className="flex items-center justify-between text-xs text-slate-400">
+            <div className="rounded-2xl border border-white/80 bg-white/95 p-4 shadow-sm">
+              <div className="flex items-center justify-between text-xs font-medium text-[#6B6785]">
                 <span>Break Time</span>
-                <span className="text-[10px] text-sky-300">Allowance: 60m</span>
+                <span className="text-[10px] font-semibold text-[#2563EB]">Allowance: 60m</span>
               </div>
-              <div className="mt-1 text-xl font-bold text-sky-400 font-mono-num">
+              <div className="mt-1 text-2xl font-extrabold text-[#2563EB] font-mono-num">
                 {formatDuration(currentUser.break_seconds)}
               </div>
-              <div className="mt-1 text-[10px] text-slate-400">
-                Lunch 1:00–1:45 PM (45m) • Tea 15m after 3:00 PM
+              <div className="mt-1 text-[10px] text-[#6B6785]">
+                Lunch 1:00–1:45 PM (45m) &bull; Tea 15m after 3:00 PM
               </div>
             </div>
           </div>
