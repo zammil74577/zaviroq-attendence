@@ -607,7 +607,9 @@ export function App() {
             </div>
           )}
 
-          {data && activeTab === 'overview' && (
+          {data && (
+            <div key={activeTab} className="zv-enter space-y-5">
+              {activeTab === 'overview' && (
             <OverviewTab
               data={data}
               viewMode={viewMode}
@@ -713,6 +715,8 @@ export function App() {
 
           {data && activeTab === 'settings' && viewMode === 'admin' && (
             <SettingsTab onSaved={() => fetchDashboard()} />
+          )}
+            </div>
           )}
         </main>
       </div>

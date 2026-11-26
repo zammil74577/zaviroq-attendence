@@ -110,8 +110,52 @@
 .zv-skeleton {
   background: linear-gradient(90deg, #F3F0FF 25%, #E9E3FF 50%, #F3F0FF 75%);
   background-size: 200% 100%;
-  animation: zv-shimmer 1.5s infinite linear;
+  animation: zv-shimmer 1.4s infinite linear;
   border-radius: 12px;
+}
+
+/* Entrance & Icon Hover Animations */
+@keyframes zv-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.zv-enter {
+  animation: zv-fade-up 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.zv-stagger > * {
+  animation: zv-fade-up 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.zv-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.zv-stagger > *:nth-child(2) { animation-delay: 45ms; }
+.zv-stagger > *:nth-child(3) { animation-delay: 90ms; }
+.zv-stagger > *:nth-child(4) { animation-delay: 135ms; }
+.zv-stagger > *:nth-child(5) { animation-delay: 180ms; }
+
+button svg,
+a svg,
+.zv-icon-chip,
+.zv-icon-chip svg {
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+button:hover:not(:disabled) svg:not(.animate-spin),
+a:hover svg {
+  transform: scale(1.12) rotate(-4deg);
+}
+
+.zv-card:hover .zv-icon-chip {
+  transform: scale(1.06);
+}
+.zv-card:hover .zv-icon-chip svg {
+  transform: scale(1.14) rotate(-6deg);
 }
 
 /* =========================================================
@@ -119,12 +163,30 @@
    Maps existing dark Tailwind classes cleanly when light
    theme is active, preserving 4.5:1+ contrast & layout.
    ========================================================= */
-[data-theme="light"] .bg-slate-950,
-[data-theme="light"] .bg-slate-950\/90,
-[data-theme="light"] .bg-slate-950\/80,
-[data-theme="light"] .bg-slate-950\/70,
-[data-theme="light"] .bg-slate-950\/60 {
+[data-theme="light"] .bg-slate-950:not(.fixed),
+[data-theme="light"] .bg-slate-950\/90:not(.fixed),
+[data-theme="light"] .bg-slate-950\/80:not(.fixed),
+[data-theme="light"] .bg-slate-950\/70:not(.fixed),
+[data-theme="light"] .bg-slate-950\/60:not(.fixed),
+[data-theme="light"] .bg-slate-950\/50:not(.fixed),
+[data-theme="light"] .bg-slate-950\/40:not(.fixed) {
   background-color: #FAF8FF !important;
+}
+
+[data-theme="light"] .fixed.inset-0 {
+  background-color: rgba(26, 22, 53, 0.42) !important;
+}
+
+[data-theme="light"] .from-indigo-950\/60,
+[data-theme="light"] .from-indigo-950,
+[data-theme="light"] .from-slate-900 {
+  --tw-gradient-from: #EFEAFF !important;
+}
+[data-theme="light"] .via-slate-900 {
+  --tw-gradient-via: #FAF8FF !important;
+}
+[data-theme="light"] .to-slate-900 {
+  --tw-gradient-to: #FFFFFF !important;
 }
 
 [data-theme="light"] .bg-slate-900,
@@ -186,11 +248,13 @@
 [data-theme="light"] .bg-amber-500\/15,
 [data-theme="light"] .bg-amber-500\/10,
 [data-theme="light"] .bg-amber-500\/20,
+[data-theme="light"] .bg-amber-950\/30,
 [data-theme="light"] .bg-amber-950\/40 {
   background-color: #FFF4E0 !important;
 }
 [data-theme="light"] .bg-rose-500\/15,
 [data-theme="light"] .bg-rose-500\/10,
+[data-theme="light"] .bg-rose-950\/15,
 [data-theme="light"] .bg-rose-950\/40 {
   background-color: #FDECEC !important;
 }

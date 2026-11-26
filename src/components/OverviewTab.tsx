@@ -149,7 +149,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       </div>
 
       {/* Executive KPI Strip (4 across, 2 on tablet, 1 on mobile) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 zv-stagger">
         {isEmployeeMode ? (
           <>
             <KpiCard
@@ -515,7 +515,7 @@ const KpiCard: React.FC<{
         className={`pointer-events-none absolute -bottom-6 -right-6 h-24 w-36 rounded-full bg-gradient-to-tl ${st.wave} blur-md`}
       />
       <div className="relative z-10 flex items-start gap-3.5">
-        <div className={`h-12 w-12 rounded-2xl ${st.chip} flex items-center justify-center shrink-0`}>
+        <div className={`zv-icon-chip h-12 w-12 rounded-2xl ${st.chip} flex items-center justify-center shrink-0`}>
           {icon}
         </div>
         <div className="min-w-0 flex-1">
