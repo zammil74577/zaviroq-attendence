@@ -126,9 +126,34 @@ export const TopBar: React.FC<TopBarProps> = ({
   useEffect(() => {
     fetch('/api/notifications')
       .then((r) => (r.ok ? r.json() : []))
-      .then((list) => setNotifications(Array.isArray(list) ? list : []))
+      .then((list) => {
+        const items: AppNotification[] = Array.isArray(list) ? list : [];
+        setNotifications(items);
+        const leaveNotif = items.find((n) => n.type === 'leave_granted');
+        if (leaveNotif && currentUser) {
+          const seenKey = `zaviroq_seen_notif_${currentUser.id}_${leaveNotif.id}`;
+          try {
+            if (!localStorage.getItem(seenKey)) {
+              localStorage.setItem(seenKey, '1');
+              window.dispatchEvent(
+                new CustomEvent('zaviroq:celebrate', {
+                  detail: {
+                    id: leaveNotif.id,
+                    kind: 'leave_granted',
+                    title: leaveNotif.title,
+                    message: leaveNotif.message,
+                    dropItems: true,
+                  },
+                })
+              );
+            }
+          } catch {
+            // ignore
+          }
+        }
+      })
       .catch(() => {});
-  }, [selectedDate, isSyncing]);
+  }, [selectedDate, isSyncing, currentUser?.id]);
 
   const isClockedIn = Boolean(currentUser?.clock_in && !currentUser?.clock_out);
   const effectiveLiveStatus = isClockedIn ? (currentUser?.status || liveState) : 'offline';

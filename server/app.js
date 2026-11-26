@@ -1218,6 +1218,15 @@ app.patch('/api/leaves/:id', requireRole('admin', 'manager'), async (req, res) =
         [leave.employee_id, ds, `Approved ${leave.leave_type} leave`]
       );
     }
+    await query(
+      `INSERT INTO notifications (employee_id, type, title, message, link, created_at)
+       VALUES ($1, 'leave_granted', $2, $3, '/?tab=leaves', NOW())`,
+      [
+        leave.employee_id,
+        'Leave Approved! 🌴',
+        `Your ${leave.leave_type} leave (${leave.start_date} to ${leave.end_date}) has been approved by ${req.user.name}. Enjoy your time off!`,
+      ]
+    );
   }
   await writeAuditLog({ actorId: req.user.id, actorName: req.user.name, action: `LEAVE_${status.toUpperCase()}`, entityType: 'leave', entityId: id, oldValue: { status: leave.status }, newValue: { status, comment } });
   res.json(updated);

@@ -1206,6 +1206,15 @@ app.patch('/api/leaves/:id', requireRole('admin', 'manager'), (req, res) => {
         ON CONFLICT(employee_id, date) DO UPDATE SET status = 'on_leave', notes = excluded.notes
       `).run(leave.employee_id, dateStr, `Approved ${leave.leave_type} leave`);
     }
+    db.prepare(`
+      INSERT INTO notifications (employee_id, type, title, message, link, created_at)
+      VALUES (?, 'leave_granted', ?, ?, '/?tab=leaves', ?)
+    `).run(
+      leave.employee_id,
+      'Leave Approved! 🌴',
+      `Your ${leave.leave_type} leave (${leave.start_date} to ${leave.end_date}) has been approved by ${req.user.name}. Enjoy your time off!`,
+      new Date().toISOString()
+    );
   }
 
   writeAuditLog({

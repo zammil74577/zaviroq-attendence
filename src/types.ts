@@ -260,7 +260,7 @@ export interface AuditLogEntry {
 
 export interface AppNotification {
   id: string;
-  type: 'warning' | 'danger' | 'info' | 'alert';
+  type: 'warning' | 'danger' | 'info' | 'alert' | 'leave_granted';
   title: string;
   message: string;
   link?: string;
