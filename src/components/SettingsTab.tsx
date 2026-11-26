@@ -1,28 +1,134 @@
 import React, { useEffect, useState } from 'react';
-import { Save, CalendarPlus, Trash2 } from 'lucide-react';
-import type { Holiday, OfficeSchedule } from '../types';
+import { Save, CalendarPlus, Trash2, Bell, BellRing } from 'lucide-react';
+import type { AlertRule, Holiday, OfficeSchedule } from '../types';
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = window.atob(base64);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+function parseJsonVal<T>(v: T | string, fallback: T): T {
+  if (typeof v !== 'string') return v ?? fallback;
+  try { return JSON.parse(v) as T; } catch { return fallback; }
+}
 
 interface SettingsTabProps {
   onSaved: () => Promise<void>;
 }
 
 export const SettingsTab: React.FC<SettingsTabProps> = ({ onSaved }) => {
+  const [activeSubTab, setActiveSubTab] = useState<'general' | 'alerts'>('general');
   const [settings, setSettings] = useState<OfficeSchedule | null>(null);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
+  const [pushEnabled, setPushEnabled] = useState<boolean>(false);
+  const [pushBusy, setPushBusy] = useState<boolean>(false);
   const [newHolidayDate, setNewHolidayDate] = useState('');
   const [newHolidayName, setNewHolidayName] = useState('');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   const loadAll = async () => {
-    const [sRes, hRes] = await Promise.all([fetch('/api/settings'), fetch('/api/holidays')]);
+    const [sRes, hRes, aRes] = await Promise.all([
+      fetch('/api/settings'),
+      fetch('/api/holidays'),
+      fetch('/api/alert-rules'),
+    ]);
     if (sRes.ok) setSettings(await sRes.json());
     if (hRes.ok) setHolidays(await hRes.json());
+    if (aRes.ok) {
+      const raw: AlertRule[] = await aRes.json();
+      setAlertRules(
+        raw.map((r) => ({
+          ...r,
+          enabled: Boolean(r.enabled),
+          channels: parseJsonVal<string[]>(r.channels, ['in_app']),
+          quiet_hours: parseJsonVal<{ start: string; end: string }>(r.quiet_hours, { start: '22:00', end: '08:00' }),
+        }))
+      );
+    }
   };
 
   useEffect(() => {
     loadAll();
+    if ('serviceWorker' in navigator && 'PushManager' in window) {
+      navigator.serviceWorker.ready
+        .then((reg) => reg.pushManager.getSubscription())
+        .then((sub) => setPushEnabled(Boolean(sub)))
+        .catch(() => {});
+    }
   }, []);
+
+  const handleTogglePush = async () => {
+    setPushBusy(true);
+    setMsg(null);
+    try {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        setMsg('Web Push is not supported in this browser.');
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      const existing = await reg.pushManager.getSubscription();
+      if (existing) {
+        await fetch('/api/push/subscribe', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint: existing.endpoint }),
+        });
+        await existing.unsubscribe();
+        setPushEnabled(false);
+        setMsg('Push notifications disabled.');
+        return;
+      }
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') {
+        setMsg('Notification permission denied.');
+        return;
+      }
+      const keyRes = await fetch('/api/push/vapid-key');
+      const { publicKey } = await keyRes.json();
+      if (!publicKey) {
+        setMsg('VAPID_PUBLIC_KEY is not configured on the server.');
+        return;
+      }
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+      const subJson = sub.toJSON();
+      const saveRes = await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(subJson),
+      });
+      if (saveRes.ok) {
+        setPushEnabled(true);
+        setMsg('Push notifications enabled for this device.');
+      }
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  const handleSaveRule = async (rule: AlertRule) => {
+    const res = await fetch(`/api/alert-rules/${rule.type}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        enabled: Boolean(rule.enabled),
+        threshold_minutes: Number(rule.threshold_minutes),
+        channels: rule.channels,
+        quiet_hours: rule.quiet_hours,
+        recipients: rule.recipients,
+      }),
+    });
+    if (res.ok) {
+      setMsg(`Saved alert rule "${rule.type}".`);
+      await loadAll();
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,11 +176,35 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ onSaved }) => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold text-white">Organization & Policy Settings</h1>
-        <p className="text-xs text-slate-400">
-          Configure office timings, late grace period, break allowances, idle thresholds, late deductions & holidays
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-white">Organization &amp; Policy Settings</h1>
+          <p className="text-xs text-slate-400">
+            Configure office timings, late grace period, break allowances, idle thresholds, alerts &amp; holidays
+          </p>
+        </div>
+
+        <div className="inline-flex rounded-xl border border-slate-800 bg-slate-900 p-1">
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('general')}
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer ${
+              activeSubTab === 'general' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            Policies &amp; Holidays
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('alerts')}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer ${
+              activeSubTab === 'alerts' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Bell className="h-3.5 w-3.5" />
+            Alerts
+          </button>
+        </div>
       </div>
 
       {msg && (
@@ -83,6 +213,128 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ onSaved }) => {
         </div>
       )}
 
+      {activeSubTab === 'alerts' ? (
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-white">Browser &amp; Mobile Push Notifications</h2>
+              <p className="text-xs text-slate-400">
+                Receive real-time alerts on desktop, Android, and installed iOS apps.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={pushBusy}
+              onClick={handleTogglePush}
+              className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer ${
+                pushEnabled
+                  ? 'border border-emerald-500/40 bg-emerald-500/15 text-emerald-200'
+                  : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+              }`}
+            >
+              <BellRing className="h-3.5 w-3.5" />
+              {pushBusy ? 'Updating...' : pushEnabled ? 'Notifications Enabled ✓' : 'Enable notifications'}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {alertRules.map((rule) => {
+              const channels = Array.isArray(rule.channels) ? rule.channels : [];
+              const qh = typeof rule.quiet_hours === 'object' && rule.quiet_hours ? rule.quiet_hours : { start: '22:00', end: '08:00' };
+              const updateRule = (patch: Partial<AlertRule>) =>
+                setAlertRules((prev) => prev.map((r) => (r.type === rule.type ? { ...r, ...patch } : r)));
+
+              return (
+                <div key={rule.type} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-white font-mono-num">{rule.type}</span>
+                    <label className="inline-flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(rule.enabled)}
+                        onChange={(e) => updateRule({ enabled: e.target.checked })}
+                      />
+                      Enabled
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5 text-xs">
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1">Threshold (mins)</label>
+                      <input
+                        type="number"
+                        value={rule.threshold_minutes}
+                        onChange={(e) => updateRule({ threshold_minutes: Number(e.target.value) })}
+                        className="w-full rounded-xl border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1">Recipients</label>
+                      <select
+                        value={rule.recipients || 'all'}
+                        onChange={(e) => updateRule({ recipients: e.target.value })}
+                        className="w-full rounded-xl border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-white"
+                      >
+                        <option value="all">Admins &amp; Managers (dept)</option>
+                        <option value="admins">Admins Only</option>
+                        <option value="managers">Managers Only (dept)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5 text-xs">
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1">Quiet Start</label>
+                      <input
+                        type="time"
+                        value={qh.start}
+                        onChange={(e) => updateRule({ quiet_hours: { ...qh, start: e.target.value } })}
+                        className="w-full rounded-xl border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1">Quiet End</label>
+                      <input
+                        type="time"
+                        value={qh.end}
+                        onChange={(e) => updateRule({ quiet_hours: { ...qh, end: e.target.value } })}
+                        className="w-full rounded-xl border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                    <div className="flex items-center gap-3 text-xs text-slate-300">
+                      {(['in_app', 'push', 'email'] as const).map((ch) => (
+                        <label key={ch} className="inline-flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={channels.includes(ch)}
+                            onChange={(e) => {
+                              const next = e.target.checked
+                                ? [...new Set([...channels, ch])]
+                                : channels.filter((c) => c !== ch);
+                              updateRule({ channels: next });
+                            }}
+                          />
+                          {ch}
+                        </label>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSaveRule(rule)}
+                      className="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 text-xs font-semibold text-white cursor-pointer"
+                    >
+                      Save Rule
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <form onSubmit={handleSave} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 space-y-4">
           <h2 className="text-base font-semibold text-white">Shift, Break & Payroll Policies</h2>
@@ -192,6 +444,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ onSaved }) => {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 };

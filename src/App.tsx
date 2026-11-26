@@ -39,6 +39,21 @@ export function App() {
   const [clockActionPending, setClockActionPending] = useState<boolean>(false);
   const [demoMode, setDemoMode] = useState<boolean>(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<{ prompt: () => Promise<void> } | null>(null);
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
+  const isStandalone =
+    typeof window !== 'undefined' &&
+    (window.matchMedia?.('(display-mode: standalone)').matches ||
+      (window.navigator as unknown as { standalone?: boolean }).standalone === true);
+
+  useEffect(() => {
+    const onPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e as unknown as { prompt: () => Promise<void> });
+    };
+    window.addEventListener('beforeinstallprompt', onPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', onPrompt);
+  }, []);
 
   // Verify session from server httpOnly cookie on load (never trust localStorage for role/auth)
   useEffect(() => {
@@ -147,6 +162,26 @@ export function App() {
     data?.employees.find((e) => e.id === selectedUserId) || data?.employees[0] || null;
   const isClockedIn = Boolean(currentUser?.clock_in && !currentUser?.clock_out);
   const isReadOnlyPreview = Boolean(isMasterAdmin && viewMode === 'employee');
+
+  useEffect(() => {
+    if (!isStandalone || !isClockedIn || isReadOnlyPreview) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = 'Closing Zaviroq pauses tracking';
+      return 'Closing Zaviroq pauses tracking';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [isStandalone, isClockedIn, isReadOnlyPreview]);
+
+  const handleInstallApp = async () => {
+    if (deferredPrompt) {
+      await deferredPrompt.prompt();
+      setDeferredPrompt(null);
+    } else {
+      setShowInstallGuide(true);
+    }
+  };
 
   const {
     liveState,
@@ -429,6 +464,9 @@ export function App() {
           onSelectUser={setSelectedUserId}
           liveState={liveState}
           trackingMode={trackingMode}
+          isStandalone={isStandalone}
+          canInstall={Boolean(deferredPrompt)}
+          onInstallApp={handleInstallApp}
           onClockIn={handleClockIn}
           onClockOut={handleClockOut}
           clockActionPending={clockActionPending}
@@ -447,8 +485,21 @@ export function App() {
             </div>
           )}
           {viewMode === 'employee' && !isReadOnlyPreview && (
-            <div className="rounded-xl border border-slate-800 bg-slate-900/80 px-4 py-2 text-xs text-slate-300 flex items-center justify-between gap-2">
-              <span>Keep Zaviroq open in a tab while working.</span>
+            <div className="rounded-xl border border-slate-800 bg-slate-900/80 px-4 py-2 text-xs text-slate-300 flex flex-wrap items-center justify-between gap-2">
+              <span>
+                {isStandalone && isClockedIn
+                  ? 'Closing Zaviroq pauses tracking. Keep this app open while working.'
+                  : 'Keep Zaviroq open in a tab or installed app while working.'}
+              </span>
+              {!isStandalone && (
+                <button
+                  type="button"
+                  onClick={handleInstallApp}
+                  className="rounded-lg border border-indigo-500/40 bg-indigo-500/15 hover:bg-indigo-500/25 px-2.5 py-1 text-[11px] font-semibold text-indigo-200 cursor-pointer"
+                >
+                  {deferredPrompt ? 'Install Zaviroq app' : 'How to Install & Auto-Start'}
+                </button>
+              )}
             </div>
           )}
           {isClockedIn && (() => {
@@ -606,6 +657,31 @@ export function App() {
           liveState={liveState}
           todayDate={data.summary.date}
         />
+      )}
+
+      {showInstallGuide && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4">
+            <h2 className="text-base font-bold text-white">Install Zaviroq App &amp; Auto-Start</h2>
+            <ol className="list-decimal pl-5 space-y-2 text-xs text-slate-300 leading-relaxed">
+              <li>Open Zaviroq in <strong>Chrome</strong> or <strong>Edge</strong> and click <strong>Install</strong> in the address bar (or menu).</li>
+              <li>Open <code className="text-indigo-300">chrome://apps</code> (or <code className="text-indigo-300">edge://apps</code>).</li>
+              <li>Right-click <strong>Zaviroq</strong> and enable <strong>&quot;Start app when you sign in&quot;</strong>.</li>
+            </ol>
+            <p className="text-[11px] text-amber-300/90">
+              Note: Closing Zaviroq pauses tracking while clocked in.
+            </p>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowInstallGuide(false)}
+                className="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-4 py-2 text-xs font-semibold text-white cursor-pointer"
+              >
+                Got it
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

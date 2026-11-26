@@ -154,7 +154,7 @@ export interface Employee {
   break_seconds: number;
   overtime_seconds: number;
   missed_clock_out?: number;
-  tracking_mode?: 'system' | 'tab_only';
+  tracking_mode?: 'app_system' | 'system' | 'tab_only';
   break_over_limit?: boolean;
   attendance_notes: string;
 }
@@ -260,9 +260,20 @@ export interface AuditLogEntry {
 
 export interface AppNotification {
   id: string;
-  type: 'warning' | 'danger' | 'info';
+  type: 'warning' | 'danger' | 'info' | 'alert';
   title: string;
   message: string;
+  link?: string;
+}
+
+export interface AlertRule {
+  id: number;
+  type: string;
+  enabled: boolean | number;
+  threshold_minutes: number;
+  channels: string[] | string;
+  quiet_hours: { start: string; end: string } | string;
+  recipients: string;
 }
 
 export interface Holiday {

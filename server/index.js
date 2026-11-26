@@ -18,6 +18,7 @@ import {
   writeAuditLog,
   formatClockInReasonInTz,
 } from './db.js';
+import { evaluateAlertRules } from './alerts.js';
 import {
   SESSION_COOKIE_NAME,
   requireAuth,
@@ -648,7 +649,7 @@ app.post('/api/attendance/clock-in', (req, res) => {
   const isPrivileged = req.user.role === 'admin' || req.user.role === 'manager';
   const targetId = isPrivileged && req.body.employeeId ? Number(req.body.employeeId) : req.user.id;
   const { notes = '', trackingMode = 'tab_only' } = req.body;
-  const safeTrackingMode = trackingMode === 'system' ? 'system' : 'tab_only';
+  const safeTrackingMode = trackingMode === 'app_system' ? 'app_system' : trackingMode === 'system' ? 'system' : 'tab_only';
 
   const emp = db.prepare('SELECT * FROM employees WHERE id = ? AND is_active = 1').get(targetId);
   if (!emp) return res.status(404).json({ error: 'Employee not found' });
@@ -792,7 +793,10 @@ app.post('/api/activity/heartbeat', (req, res) => {
 
   const settings = getSettings();
   const netShiftSec = settings.netWorkHours * 3600;
-  const safeTrackingMode = trackingMode === 'system' || trackingMode === 'tab_only' ? trackingMode : null;
+  const safeTrackingMode =
+    trackingMode === 'app_system' || trackingMode === 'system' || trackingMode === 'tab_only'
+      ? trackingMode
+      : null;
 
   if (elapsedSeconds > 0 || safeTrackingMode) {
     db.prepare(`
@@ -1748,7 +1752,103 @@ app.get('/api/notifications', (req, res) => {
     }
   }
 
+  const saved = db.prepare(`SELECT id, type, title, message, link FROM notifications WHERE employee_id = ? ORDER BY id DESC LIMIT 20`).all(req.user.id);
+  for (const s of saved) {
+    notifications.push({ id: `alert-${s.id}`, type: s.type || 'alert', title: s.title, message: s.message, link: s.link || '' });
+  }
+
   res.json(notifications);
+});
+
+const sqliteAlertAdapter = {
+  getSettings,
+  getRules: () => db.prepare(`SELECT * FROM alert_rules ORDER BY id ASC`).all(),
+  isHoliday: (date) => Boolean(db.prepare(`SELECT 1 FROM holidays WHERE date = ?`).get(date)),
+  getEmployeesWithAttendance: (date) =>
+    db.prepare(
+      `SELECT e.id, e.emp_code, e.name, e.email, e.department, e.role, e.shift_start, e.shift_end, e.status, e.last_heartbeat_at,
+        a.clock_in, a.clock_out, COALESCE(a.status, 'absent') as att_status, COALESCE(a.idle_seconds, 0) as idle_seconds, COALESCE(a.break_seconds, 0) as break_seconds
+       FROM employees e LEFT JOIN attendance a ON a.employee_id = e.id AND a.date = ? WHERE e.is_active = 1`
+    ).all(date),
+  getApprovedLeaveEmployeeIds: (date) =>
+    db.prepare(`SELECT employee_id FROM leaves WHERE status = 'approved' AND start_date <= ? AND end_date >= ?`).all(date, date).map((r) => r.employee_id),
+  getPrivilegedRecipients: () => db.prepare(`SELECT id, name, email, role, department FROM employees WHERE is_active = 1 AND role IN ('admin', 'manager')`).all(),
+  getActiveEpisode: (ruleType, episodeKey) => db.prepare(`SELECT id FROM alert_episodes WHERE rule_type = ? AND episode_key = ? AND active = 1 LIMIT 1`).get(ruleType, episodeKey),
+  openEpisode: ({ employeeId, ruleType, episodeKey, nowIso }) =>
+    db.prepare(`INSERT INTO alert_episodes (employee_id, rule_type, episode_key, active, triggered_at) VALUES (?, ?, ?, 1, ?)`).run(employeeId, ruleType, episodeKey, nowIso),
+  resolveEpisode: (id, nowIso) => db.prepare(`UPDATE alert_episodes SET active = 0, resolved_at = ? WHERE id = ?`).run(nowIso, id),
+  insertNotification: ({ employeeId, type, title, message, link, nowIso }) =>
+    db.prepare(`INSERT INTO notifications (employee_id, type, title, message, link, created_at) VALUES (?, ?, ?, ?, ?, ?)`).run(employeeId, type, title, message, link, nowIso),
+  getPushSubscriptions: (empIds) => {
+    if (empIds.length === 0) return [];
+    const ph = empIds.map(() => '?').join(',');
+    return db.prepare(`SELECT * FROM push_subscriptions WHERE employee_id IN (${ph})`).all(...empIds);
+  },
+  deletePushSubscription: (endpoint) => db.prepare(`DELETE FROM push_subscriptions WHERE endpoint = ?`).run(endpoint),
+  writeAudit: ({ action, entityType, entityId, newValue }) => writeAuditLog({ actorId: null, actorName: 'System', action, entityType, entityId, newValue }),
+};
+
+export function evaluateAlertRulesForTest(now = new Date(), timeZone = 'Asia/Kolkata') {
+  return evaluateAlertRules(sqliteAlertAdapter, { now, timeZone });
+}
+
+app.get('/api/alert-rules', requireRole('admin', 'manager'), (_req, res) => {
+  res.json(db.prepare(`SELECT * FROM alert_rules ORDER BY id ASC`).all());
+});
+
+app.put('/api/alert-rules/:type', requireRole('admin'), (req, res) => {
+  const { type } = req.params;
+  const { enabled, threshold_minutes, channels, quiet_hours, recipients } = req.body;
+  const existing = db.prepare(`SELECT * FROM alert_rules WHERE type = ?`).get(type);
+  if (!existing) return res.status(404).json({ error: 'Alert rule not found' });
+
+  db.prepare(
+    `UPDATE alert_rules
+     SET enabled = COALESCE(?, enabled),
+         threshold_minutes = COALESCE(?, threshold_minutes),
+         channels = COALESCE(?, channels),
+         quiet_hours = COALESCE(?, quiet_hours),
+         recipients = COALESCE(?, recipients),
+         updated_at = datetime('now')
+     WHERE type = ?`
+  ).run(
+    enabled !== undefined ? (enabled ? 1 : 0) : null,
+    threshold_minutes !== undefined ? Number(threshold_minutes) : null,
+    channels !== undefined ? JSON.stringify(channels) : null,
+    quiet_hours !== undefined ? JSON.stringify(quiet_hours) : null,
+    recipients || null,
+    type
+  );
+  const updated = db.prepare(`SELECT * FROM alert_rules WHERE type = ?`).get(type);
+  writeAuditLog({ actorId: req.user.id, actorName: req.user.name, action: 'UPDATE_ALERT_RULE', entityType: 'alert_rule', entityId: type, oldValue: existing, newValue: updated });
+  res.json(updated);
+});
+
+app.get('/api/push/vapid-key', requireRole('admin', 'manager'), (_req, res) => {
+  res.json({ publicKey: process.env.VAPID_PUBLIC_KEY || '' });
+});
+
+app.post('/api/push/subscribe', requireRole('admin', 'manager'), (req, res) => {
+  const { endpoint, keys } = req.body || {};
+  if (!endpoint || !keys?.p256dh || !keys?.auth) {
+    return res.status(400).json({ error: 'Valid push subscription endpoint and keys required.' });
+  }
+  db.prepare(
+    `INSERT INTO push_subscriptions (employee_id, endpoint, p256dh, auth)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(endpoint) DO UPDATE SET employee_id = excluded.employee_id, p256dh = excluded.p256dh, auth = excluded.auth`
+  ).run(req.user.id, endpoint, keys.p256dh, keys.auth);
+  res.status(201).json({ ok: true });
+});
+
+app.delete('/api/push/subscribe', requireRole('admin', 'manager'), (req, res) => {
+  const { endpoint } = req.body || {};
+  if (endpoint) {
+    db.prepare(`DELETE FROM push_subscriptions WHERE endpoint = ? AND employee_id = ?`).run(endpoint, req.user.id);
+  } else {
+    db.prepare(`DELETE FROM push_subscriptions WHERE employee_id = ?`).run(req.user.id);
+  }
+  res.json({ ok: true });
 });
 
 // ========================

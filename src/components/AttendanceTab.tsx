@@ -190,12 +190,21 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({
                   <td className="px-4 py-3.5">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <LiveStatusBadge status={emp.status} />
-                      {viewMode === 'admin' && emp.clock_in && !emp.clock_out && emp.tracking_mode === 'tab_only' && (
+                      {viewMode === 'admin' && emp.clock_in && !emp.clock_out && (
                         <span
-                          className="rounded-md border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300 whitespace-nowrap"
-                          title="Browser IdleDetector not active; using tab-only fallback"
+                          className={`rounded-md border px-1.5 py-0.5 text-[10px] font-semibold whitespace-nowrap ${
+                            emp.tracking_mode === 'app_system'
+                              ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+                              : emp.tracking_mode === 'system'
+                              ? 'border-cyan-500/40 bg-cyan-500/15 text-cyan-300'
+                              : 'border-amber-500/40 bg-amber-500/15 text-amber-300'
+                          }`}
                         >
-                          Limited tracking
+                          {emp.tracking_mode === 'app_system'
+                            ? 'App (system)'
+                            : emp.tracking_mode === 'system'
+                            ? 'Tab (system)'
+                            : 'Tab only'}
                         </span>
                       )}
                     </div>

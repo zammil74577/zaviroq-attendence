@@ -271,6 +271,18 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
                     {emp.shift_start} – {emp.shift_end}
                   </span>
                 </div>
+                {viewMode === 'admin' && emp.clock_in && !emp.clock_out && (
+                  <div className="flex items-center justify-between">
+                    <span>Tracker:</span>
+                    <span className="text-[11px] font-medium text-indigo-300">
+                      {emp.tracking_mode === 'app_system'
+                        ? 'App (system)'
+                        : emp.tracking_mode === 'system'
+                        ? 'Tab (system)'
+                        : 'Tab only'}
+                    </span>
+                  </div>
+                )}
                 {viewMode === 'admin' && (
                   <div className="pt-2 flex items-center gap-2">
                     <button

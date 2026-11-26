@@ -24,7 +24,10 @@ interface TopBarProps {
   currentUser: Employee | null;
   onSelectUser: (id: number) => void;
   liveState: 'active' | 'idle' | 'break';
-  trackingMode?: 'system' | 'tab_only';
+  trackingMode?: 'app_system' | 'system' | 'tab_only';
+  isStandalone?: boolean;
+  canInstall?: boolean;
+  onInstallApp?: () => void;
   onClockIn: () => void;
   onClockOut: () => void;
   clockActionPending?: boolean;
@@ -47,6 +50,9 @@ export const TopBar: React.FC<TopBarProps> = ({
   onSelectUser,
   liveState,
   trackingMode = 'tab_only',
+  isStandalone = false,
+  canInstall = false,
+  onInstallApp,
   onClockIn,
   onClockOut,
   clockActionPending = false,
@@ -182,13 +188,32 @@ export const TopBar: React.FC<TopBarProps> = ({
               {isClockedIn && !isReadOnlyPreview && (
                 <span
                   className={`hidden md:inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium ${
-                    trackingMode === 'system'
+                    trackingMode === 'app_system' || trackingMode === 'system'
                       ? 'border-emerald-500/30 bg-emerald-500/15 text-emerald-300'
                       : 'border-amber-500/30 bg-amber-500/15 text-amber-300'
                   }`}
                 >
-                  {trackingMode === 'system' ? 'System tracking' : 'Tab-only'}
+                  {trackingMode === 'app_system'
+                    ? 'App (system)'
+                    : trackingMode === 'system'
+                    ? 'Tab (system)'
+                    : 'Tab only'}
                 </span>
+              )}
+              {isStandalone ? (
+                <span className="hidden sm:inline-flex items-center rounded-md border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300">
+                  Installed ✓
+                </span>
+              ) : (
+                onInstallApp && (
+                  <button
+                    type="button"
+                    onClick={onInstallApp}
+                    className="hidden sm:inline-flex items-center rounded-md border border-indigo-500/40 bg-indigo-500/15 hover:bg-indigo-500/25 px-2 py-0.5 text-[10px] font-semibold text-indigo-200 cursor-pointer"
+                  >
+                    {canInstall ? 'Install Zaviroq app' : 'Install App Guide'}
+                  </button>
+                )
               )}
             </div>
           )}

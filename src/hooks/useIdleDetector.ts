@@ -59,7 +59,11 @@ export function useIdleDetector({
   );
   const [secondsSinceActivity, setSecondsSinceActivity] = useState(0);
   const [pausedByOtherTab, setPausedByOtherTab] = useState(false);
-  const [trackingMode, setTrackingMode] = useState<'system' | 'tab_only'>('tab_only');
+  const [trackingMode, setTrackingMode] = useState<'app_system' | 'system' | 'tab_only'>('tab_only');
+  const isStandalone =
+    typeof window !== 'undefined' &&
+    (window.matchMedia?.('(display-mode: standalone)').matches ||
+      (window.navigator as unknown as { standalone?: boolean }).standalone === true);
 
   const getOrCreateTabSessionId = () => {
     try {
@@ -81,7 +85,7 @@ export function useIdleDetector({
   const lastActivityRef = useRef<number>(Date.now());
   const stateRef = useRef<'active' | 'idle' | 'break'>(liveState);
   const tickCountRef = useRef<number>(0);
-  const trackingModeRef = useRef<'system' | 'tab_only'>('tab_only');
+  const trackingModeRef = useRef<'app_system' | 'system' | 'tab_only'>('tab_only');
   const abortControllerRef = useRef<AbortController | null>(null);
   const systemUserStateRef = useRef<'active' | 'idle'>('active');
   const systemScreenStateRef = useRef<'locked' | 'unlocked'>('unlocked');
@@ -99,7 +103,7 @@ export function useIdleDetector({
       state: 'active' | 'idle' | 'break',
       reason = '',
       claimSession = false,
-      modeOverride?: 'system' | 'tab_only'
+      modeOverride?: 'app_system' | 'system' | 'tab_only'
     ) => {
       if (!employeeId || !isClockedIn) return;
       try {
@@ -130,13 +134,14 @@ export function useIdleDetector({
     [employeeId, isClockedIn, onSync, onSessionExpired]
   );
 
-  const startSystemDetector = useCallback(async (): Promise<'system' | 'tab_only'> => {
+  const startSystemDetector = useCallback(async (): Promise<'app_system' | 'system' | 'tab_only'> => {
     const Ctor = (window as unknown as { IdleDetector?: IdleDetectorCtor }).IdleDetector;
     if (!Ctor) {
       trackingModeRef.current = 'tab_only';
       setTrackingMode('tab_only');
       return 'tab_only';
     }
+    const sysMode: 'app_system' | 'system' = isStandalone ? 'app_system' : 'system';
     abortControllerRef.current?.abort();
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -151,7 +156,7 @@ export function useIdleDetector({
         setLiveState('idle');
         pendingTransitionRef.current = null;
         tickCountRef.current = 0;
-        sendHeartbeat('idle', 'System IdleDetector: screen=locked', false, 'system');
+        sendHeartbeat('idle', 'System IdleDetector: screen=locked', false, sysMode);
       }
     });
 
@@ -160,13 +165,13 @@ export function useIdleDetector({
       signal: controller.signal,
     });
 
-    trackingModeRef.current = 'system';
-    setTrackingMode('system');
-    return 'system';
-  }, [idleThresholdSeconds, sendHeartbeat]);
+    trackingModeRef.current = sysMode;
+    setTrackingMode(sysMode);
+    return sysMode;
+  }, [idleThresholdSeconds, isStandalone, sendHeartbeat]);
 
   // Must be called from a user gesture (e.g. Clock In button click)
-  const requestSystemIdleDetection = useCallback(async (): Promise<'system' | 'tab_only'> => {
+  const requestSystemIdleDetection = useCallback(async (): Promise<'app_system' | 'system' | 'tab_only'> => {
     const Ctor = (window as unknown as { IdleDetector?: IdleDetectorCtor }).IdleDetector;
     if (!Ctor) {
       trackingModeRef.current = 'tab_only';
@@ -201,9 +206,9 @@ export function useIdleDetector({
       try {
         const status = await navigator.permissions.query({ name: 'idle-detection' as PermissionName });
         if (!cancelled && status.state === 'granted') {
-          await startSystemDetector();
-          if (trackingModeRef.current === 'system') {
-            sendHeartbeat(stateRef.current, '', false, 'system');
+          const mode = await startSystemDetector();
+          if (mode === 'system' || mode === 'app_system') {
+            sendHeartbeat(stateRef.current, '', false, mode);
           }
         }
       } catch {

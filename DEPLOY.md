@@ -95,6 +95,10 @@ npm run migrate:chat-images
 | `ADMIN_CODE` | First admin employee code (e.g. `ZAV-001`) |
 | `ADMIN_NAME` | First admin display name |
 | `ADMIN_EMAIL` | First admin email |
+| `VAPID_PUBLIC_KEY` | Optional Web Push VAPID public key (`npx web-push generate-vapid-keys`) |
+| `VAPID_PRIVATE_KEY` | Optional Web Push VAPID private key (server-only) |
+| `VAPID_SUBJECT` | Contact URI for Web Push (e.g. `mailto:alerts@yourcompany.com`) |
+| `RESEND_API_KEY` | Optional Resend API key for `daily_summary` & `tracker_offline` email alerts |
 
 5. Click **Deploy**.
 

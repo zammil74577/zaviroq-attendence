@@ -30,6 +30,7 @@ import {
   revokeSessionToken,
 } from './auth-pg.js';
 import { uploadChatImage, signChatImageUrl } from './storage.js';
+import { evaluateAlertRules } from './alerts.js';
 
 export const app = express();
 
@@ -243,6 +244,39 @@ export async function runAutoClockOutJob() {
       await query(`UPDATE attendance SET clock_out = NOW(), missed_clock_out = TRUE, updated_at = NOW() WHERE id = $1`, [row.id]);
       await query(`UPDATE employees SET status = 'offline', last_heartbeat_at = NULL, last_heartbeat_state = NULL WHERE id = $1`, [row.employee_id]);
     }
+  }
+
+  const pgAlertAdapter = {
+    getSettings,
+    getRules: () => getAll(`SELECT * FROM alert_rules ORDER BY id ASC`),
+    isHoliday: async (date) => Boolean(await getOne(`SELECT 1 FROM holidays WHERE date = $1::date`, [date])),
+    getEmployeesWithAttendance: (date) =>
+      getAll(
+        `SELECT e.id, e.emp_code, e.name, e.email, e.department, e.role, e.shift_start, e.shift_end, e.status, e.last_heartbeat_at,
+          a.clock_in, a.clock_out, COALESCE(a.status, 'absent') as att_status, COALESCE(a.idle_seconds, 0) as idle_seconds, COALESCE(a.break_seconds, 0) as break_seconds
+         FROM employees e LEFT JOIN attendance a ON a.employee_id = e.id AND a.date = $1::date WHERE e.is_active = TRUE`,
+        [date]
+      ),
+    getApprovedLeaveEmployeeIds: async (date) => {
+      const rows = await getAll(`SELECT employee_id FROM leaves WHERE status = 'approved' AND start_date <= $1::date AND end_date >= $1::date`, [date]);
+      return rows.map((r) => r.employee_id);
+    },
+    getPrivilegedRecipients: () => getAll(`SELECT id, name, email, role, department FROM employees WHERE is_active = TRUE AND role IN ('admin', 'manager')`),
+    getActiveEpisode: (ruleType, episodeKey) => getOne(`SELECT id FROM alert_episodes WHERE rule_type = $1 AND episode_key = $2 AND active = TRUE LIMIT 1`, [ruleType, episodeKey]),
+    openEpisode: ({ employeeId, ruleType, episodeKey, nowIso }) =>
+      query(`INSERT INTO alert_episodes (employee_id, rule_type, episode_key, active, triggered_at) VALUES ($1, $2, $3, TRUE, $4::timestamptz)`, [employeeId, ruleType, episodeKey, nowIso]),
+    resolveEpisode: (id, nowIso) => query(`UPDATE alert_episodes SET active = FALSE, resolved_at = $1::timestamptz WHERE id = $2`, [nowIso, id]),
+    insertNotification: ({ employeeId, type, title, message, link, nowIso }) =>
+      query(`INSERT INTO notifications (employee_id, type, title, message, link, created_at) VALUES ($1, $2, $3, $4, $5, $6::timestamptz)`, [employeeId, type, title, message, link, nowIso]),
+    getPushSubscriptions: (empIds) => getAll(`SELECT * FROM push_subscriptions WHERE employee_id = ANY($1::int[])`, [empIds]),
+    deletePushSubscription: (endpoint) => query(`DELETE FROM push_subscriptions WHERE endpoint = $1`, [endpoint]),
+    writeAudit: ({ action, entityType, entityId, newValue }) => writeAuditLog({ actorId: null, actorName: 'System', action, entityType, entityId, newValue }),
+  };
+
+  try {
+    await evaluateAlertRules(pgAlertAdapter, { now, timeZone: APP_TIMEZONE });
+  } catch (err) {
+    console.error('[evaluateAlertRules]', err?.message || err);
   }
 }
 
@@ -615,7 +649,7 @@ app.post('/api/attendance/clock-in', async (req, res) => {
   const isPrivileged = req.user.role === 'admin' || req.user.role === 'manager';
   const targetId = isPrivileged && req.body.employeeId ? Number(req.body.employeeId) : req.user.id;
   const { notes = '', trackingMode = 'tab_only' } = req.body;
-  const safeTrackingMode = trackingMode === 'system' ? 'system' : 'tab_only';
+  const safeTrackingMode = trackingMode === 'app_system' ? 'app_system' : trackingMode === 'system' ? 'system' : 'tab_only';
 
   const emp = await getOne('SELECT * FROM employees WHERE id = $1 AND is_active = TRUE', [targetId]);
   if (!emp) return res.status(404).json({ error: 'Employee not found' });
@@ -728,7 +762,10 @@ app.post('/api/activity/heartbeat', async (req, res) => {
   const col = prevState === 'active' ? 'active_seconds' : prevState === 'idle' ? 'idle_seconds' : 'break_seconds';
   const settings = await getSettings();
   const netShiftSec = settings.netWorkHours * 3600;
-  const safeTrackingMode = trackingMode === 'system' || trackingMode === 'tab_only' ? trackingMode : null;
+  const safeTrackingMode =
+    trackingMode === 'app_system' || trackingMode === 'system' || trackingMode === 'tab_only'
+      ? trackingMode
+      : null;
 
   if (elapsedSeconds > 0 || safeTrackingMode) {
     await query(
@@ -1352,7 +1389,75 @@ app.get('/api/notifications', async (req, res) => {
   );
   for (const t of tasks) if (isTaskOverdue(t, today, settings.shiftEnd)) notifications.push({ id: `overdue-${t.id}`, type: 'danger', title: 'Task Overdue', message: `"${t.title}" (${t.assignee_name}) due ${t.due_date}` });
 
+  const saved = await getAll(
+    `SELECT id, type, title, message, link, created_at FROM notifications WHERE employee_id = $1 ORDER BY id DESC LIMIT 20`,
+    [req.user.id]
+  );
+  for (const s of saved) {
+    notifications.push({ id: `alert-${s.id}`, type: s.type || 'alert', title: s.title, message: s.message, link: s.link || '' });
+  }
+
   res.json(notifications);
+});
+
+app.get('/api/alert-rules', requireRole('admin', 'manager'), async (_req, res) => {
+  res.json(await getAll(`SELECT * FROM alert_rules ORDER BY id ASC`));
+});
+
+app.put('/api/alert-rules/:type', requireRole('admin'), async (req, res) => {
+  const { type } = req.params;
+  const { enabled, threshold_minutes, channels, quiet_hours, recipients } = req.body;
+  const existing = await getOne(`SELECT * FROM alert_rules WHERE type = $1`, [type]);
+  if (!existing) return res.status(404).json({ error: 'Alert rule not found' });
+
+  const updated = await getOne(
+    `UPDATE alert_rules
+     SET enabled = COALESCE($1, enabled),
+         threshold_minutes = COALESCE($2, threshold_minutes),
+         channels = COALESCE($3::jsonb, channels),
+         quiet_hours = COALESCE($4::jsonb, quiet_hours),
+         recipients = COALESCE($5, recipients),
+         updated_at = NOW()
+     WHERE type = $6 RETURNING *`,
+    [
+      enabled !== undefined ? Boolean(enabled) : null,
+      threshold_minutes !== undefined ? Number(threshold_minutes) : null,
+      channels !== undefined ? JSON.stringify(channels) : null,
+      quiet_hours !== undefined ? JSON.stringify(quiet_hours) : null,
+      recipients || null,
+      type,
+    ]
+  );
+  await writeAuditLog({ actorId: req.user.id, actorName: req.user.name, action: 'UPDATE_ALERT_RULE', entityType: 'alert_rule', entityId: type, oldValue: existing, newValue: updated });
+  res.json(updated);
+});
+
+app.get('/api/push/vapid-key', requireRole('admin', 'manager'), (_req, res) => {
+  res.json({ publicKey: process.env.VAPID_PUBLIC_KEY || '' });
+});
+
+app.post('/api/push/subscribe', requireRole('admin', 'manager'), async (req, res) => {
+  const { endpoint, keys } = req.body || {};
+  if (!endpoint || !keys?.p256dh || !keys?.auth) {
+    return res.status(400).json({ error: 'Valid push subscription endpoint and keys required.' });
+  }
+  await query(
+    `INSERT INTO push_subscriptions (employee_id, endpoint, p256dh, auth)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (endpoint) DO UPDATE SET employee_id = $1, p256dh = $3, auth = $4`,
+    [req.user.id, endpoint, keys.p256dh, keys.auth]
+  );
+  res.status(201).json({ ok: true });
+});
+
+app.delete('/api/push/subscribe', requireRole('admin', 'manager'), async (req, res) => {
+  const { endpoint } = req.body || {};
+  if (endpoint) {
+    await query(`DELETE FROM push_subscriptions WHERE endpoint = $1 AND employee_id = $2`, [endpoint, req.user.id]);
+  } else {
+    await query(`DELETE FROM push_subscriptions WHERE employee_id = $1`, [req.user.id]);
+  }
+  res.json({ ok: true });
 });
 
 // ========================

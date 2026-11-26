@@ -11,7 +11,7 @@ for (const ext of ['', '-wal', '-shm']) {
 }
 process.env.DB_PATH = testDbPath;
 
-const { app, computeArrivalStatus, countWorkingLeaveDays, recalculateAttendanceLateStatuses, formatClockInReason } = await import('./index.js');
+const { app, computeArrivalStatus, countWorkingLeaveDays, recalculateAttendanceLateStatuses, formatClockInReason, evaluateAlertRulesForTest } = await import('./index.js');
 const { db } = await import('./db.js');
 
 let server;
@@ -753,4 +753,54 @@ test('Round 4: combined idle signal (no flapping), 180s stale offline, and inclu
   assert.ok(emp6, 'includeInactive=true must return deactivated employee');
   assert.equal(emp6.is_active, 0);
   db.prepare(`UPDATE employees SET is_active = 1 WHERE id = 6`).run();
+});
+
+test('PWA + Alerts: each rule triggers once per episode, quiet hours respected, managers scoped to department', async () => {
+  // Ensure clean alert episodes and rules
+  db.prepare(`DELETE FROM alert_episodes`).run();
+  db.prepare(`DELETE FROM notifications`).run();
+  db.prepare(`UPDATE alert_rules SET enabled = 1, quiet_hours = '{"start":"22:00","end":"08:00"}', recipients = 'all'`).run();
+
+  // Ensure we have a manager in 'Sales' and an employee in 'Sales' + an employee in 'Engineering'
+  const { hashPin } = await import('./db.js');
+  db.prepare(`INSERT OR IGNORE INTO employees (emp_code, name, email, role, department, designation, pin, is_active) VALUES ('ZAV-901', 'Sales Mgr', 'salesmgr@zaviroq.com', 'manager', 'Sales', 'Lead', ?, 1)`).run(hashPin('849201'));
+  db.prepare(`INSERT OR IGNORE INTO employees (emp_code, name, email, role, department, designation, pin, is_active) VALUES ('ZAV-902', 'Sales Rep', 'salesrep@zaviroq.com', 'employee', 'Sales', 'Rep', ?, 1)`).run(hashPin('849201'));
+  const salesMgr = db.prepare(`SELECT id FROM employees WHERE emp_code = 'ZAV-901'`).get();
+  const salesRep = db.prepare(`SELECT id FROM employees WHERE emp_code = 'ZAV-902'`).get();
+
+  // Set Sales Rep clocked in with stale heartbeat (> 5m), idle > 15m, break > 60m on a weekday 14:00 IST (08:30 UTC)
+  const testNow = new Date('2026-11-26T08:30:00.000Z'); // 14:00 IST (outside 22:00-08:00 quiet hours)
+  const staleHb = new Date(testNow.getTime() - 10 * 60 * 1000).toISOString();
+  db.prepare(`UPDATE employees SET status = 'idle', last_heartbeat_at = ? WHERE id = ?`).run(staleHb, salesRep.id);
+  db.prepare(`INSERT OR REPLACE INTO attendance (employee_id, date, clock_in, status, idle_seconds, break_seconds) VALUES (?, '2026-11-26', '2026-11-26T04:00:00.000Z', 'present', 1200, 4000)`).run(salesRep.id);
+
+  // 1. First evaluation triggers tracker_offline, idle_too_long, break_over_limit for Sales Rep
+  const firstRun = await evaluateAlertRulesForTest(testNow, 'Asia/Kolkata');
+  const repRules = firstRun.filter((t) => t.employeeId === salesRep.id).map((t) => t.ruleType);
+  assert.ok(repRules.includes('tracker_offline'));
+  assert.ok(repRules.includes('idle_too_long'));
+  assert.ok(repRules.includes('break_over_limit'));
+
+  // Manager in Sales MUST receive Sales Rep's alert, NOT alerts for Engineering employees
+  const mgrNotifs = db.prepare(`SELECT * FROM notifications WHERE employee_id = ?`).all(salesMgr.id);
+  assert.ok(mgrNotifs.some((n) => n.link.includes(`employeeId=${salesRep.id}`)), 'Sales manager gets Sales Rep alert with link');
+  assert.equal(mgrNotifs.some((n) => n.link.includes('employeeId=3')), false, 'Sales manager must NOT get Engineering employee alert');
+
+  // 2. Second evaluation immediately after -> NO duplicate alerts while episode active
+  const secondRun = await evaluateAlertRulesForTest(testNow, 'Asia/Kolkata');
+  assert.equal(secondRun.filter((t) => t.employeeId === salesRep.id).length, 0, 'Must not re-alert during active episode');
+
+  // 3. Resolve episode (fresh heartbeat), then go stale again -> re-alerts!
+  db.prepare(`UPDATE employees SET status = 'active', last_heartbeat_at = ? WHERE id = ?`).run(testNow.toISOString(), salesRep.id);
+  await evaluateAlertRulesForTest(testNow, 'Asia/Kolkata'); // resolves tracker_offline & idle_too_long
+  const later = new Date(testNow.getTime() + 12 * 60 * 1000);
+  db.prepare(`UPDATE employees SET last_heartbeat_at = ? WHERE id = ?`).run(testNow.toISOString(), salesRep.id);
+  const thirdRun = await evaluateAlertRulesForTest(later, 'Asia/Kolkata');
+  assert.ok(thirdRun.some((t) => t.employeeId === salesRep.id && t.ruleType === 'tracker_offline'), 'Re-alerts after episode resolves and starts again');
+
+  // 4. Quiet hours respected (23:00 IST = 17:30 UTC is inside 22:00-08:00)
+  db.prepare(`DELETE FROM alert_episodes`).run();
+  const quietNow = new Date('2026-11-26T17:30:00.000Z');
+  const quietRun = await evaluateAlertRulesForTest(quietNow, 'Asia/Kolkata');
+  assert.equal(quietRun.length, 0, 'Quiet hours must suppress all alerts');
 });

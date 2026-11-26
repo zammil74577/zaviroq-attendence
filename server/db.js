@@ -262,6 +262,47 @@ export function initSchema() {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id INTEGER,
+      type TEXT NOT NULL DEFAULT 'info',
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      link TEXT DEFAULT '',
+      is_read INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS alert_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT UNIQUE NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      threshold_minutes INTEGER NOT NULL DEFAULT 5,
+      channels TEXT NOT NULL DEFAULT '["in_app"]',
+      quiet_hours TEXT NOT NULL DEFAULT '{"start":"22:00","end":"08:00"}',
+      recipients TEXT NOT NULL DEFAULT 'all',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS alert_episodes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id INTEGER,
+      rule_type TEXT NOT NULL,
+      episode_key TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      triggered_at TEXT NOT NULL DEFAULT (datetime('now')),
+      resolved_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id INTEGER NOT NULL,
+      endpoint TEXT UNIQUE NOT NULL,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 }
 
@@ -312,6 +353,19 @@ export function runMigrations() {
   for (const [k, v] of Object.entries(defaultSettings)) {
     upsertSetting.run(k, v);
   }
+
+  const upsertRule = db.prepare(
+    `INSERT OR IGNORE INTO alert_rules (type, enabled, threshold_minutes, channels, quiet_hours, recipients) VALUES (?, ?, ?, ?, ?, ?)`
+  );
+  const defaultRules = [
+    ['tracker_offline', 1, 5, '["in_app","push"]', '{"start":"22:00","end":"08:00"}', 'all'],
+    ['idle_too_long', 1, 15, '["in_app"]', '{"start":"22:00","end":"08:00"}', 'all'],
+    ['break_over_limit', 1, 60, '["in_app"]', '{"start":"22:00","end":"08:00"}', 'all'],
+    ['not_clocked_in', 1, 0, '["in_app"]', '{"start":"22:00","end":"08:00"}', 'all'],
+    ['missed_clock_out', 1, 0, '["in_app"]', '{"start":"22:00","end":"08:00"}', 'all'],
+    ['daily_summary', 1, 0, '["in_app"]', '{"start":"22:00","end":"08:00"}', 'all'],
+  ];
+  for (const r of defaultRules) upsertRule.run(...r);
 
   // Hash any unhashed plain-text PINs in employees (existing data migration)
   const emps = db.prepare('SELECT id, emp_code, pin FROM employees').all();
