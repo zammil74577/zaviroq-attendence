@@ -34,10 +34,162 @@ export async function ensureSchemaOnce() {
   try {
     await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS joining_date DATE DEFAULT CURRENT_DATE`);
     await query(`UPDATE employees SET joining_date = (created_at AT TIME ZONE '${APP_TIMEZONE}')::date WHERE joining_date IS NULL`);
+    await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS must_change_pin BOOLEAN NOT NULL DEFAULT FALSE`);
+    await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS consent_accepted_at TIMESTAMPTZ`);
+    await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS active_session_id TEXT`);
+    await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMPTZ`);
+    await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS last_heartbeat_state TEXT`);
+    await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE`);
+    await query(`ALTER TABLE attendance ADD COLUMN IF NOT EXISTS tracking_mode TEXT NOT NULL DEFAULT 'tab_only'`);
+    await query(`ALTER TABLE attendance ADD COLUMN IF NOT EXISTS missed_clock_out BOOLEAN NOT NULL DEFAULT FALSE`);
+    await query(`ALTER TABLE attendance ADD COLUMN IF NOT EXISTS manual_override BOOLEAN NOT NULL DEFAULT FALSE`);
+    await query(`ALTER TABLE attendance ADD COLUMN IF NOT EXISTS overtime_seconds INTEGER NOT NULL DEFAULT 0`);
+    await query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS link TEXT DEFAULT ''`);
+
+    await query(`
+      CREATE TABLE IF NOT EXISTS alert_rules (
+        id SERIAL PRIMARY KEY,
+        type TEXT UNIQUE NOT NULL,
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        threshold_minutes INTEGER NOT NULL DEFAULT 5,
+        channels JSONB NOT NULL DEFAULT '["in_app"]'::jsonb,
+        quiet_hours JSONB NOT NULL DEFAULT '{"start":"22:00","end":"08:00"}'::jsonb,
+        recipients TEXT NOT NULL DEFAULT 'all',
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await query(`
+      CREATE TABLE IF NOT EXISTS alert_episodes (
+        id SERIAL PRIMARY KEY,
+        employee_id INTEGER REFERENCES employees(id) ON DELETE CASCADE,
+        rule_type TEXT NOT NULL,
+        episode_key TEXT NOT NULL,
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        triggered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        resolved_at TIMESTAMPTZ
+      )
+    `);
+    await query(`CREATE INDEX IF NOT EXISTS idx_alert_episodes_lookup ON alert_episodes(rule_type, episode_key, active)`);
+    await query(`
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id SERIAL PRIMARY KEY,
+        employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        endpoint TEXT UNIQUE NOT NULL,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await query(`
+      CREATE TABLE IF NOT EXISTS device_tokens (
+        id SERIAL PRIMARY KEY,
+        employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        token_hash TEXT UNIQUE NOT NULL,
+        device_name TEXT NOT NULL DEFAULT 'Desktop Device',
+        platform TEXT NOT NULL DEFAULT 'windows',
+        app_version TEXT NOT NULL DEFAULT '1.0.0',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_seen_at TIMESTAMPTZ,
+        revoked_at TIMESTAMPTZ
+      )
+    `);
+    await query(`CREATE INDEX IF NOT EXISTS idx_device_tokens_emp ON device_tokens(employee_id)`);
+    await query(`
+      CREATE TABLE IF NOT EXISTS pairing_codes (
+        id SERIAL PRIMARY KEY,
+        employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        code TEXT UNIQUE NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        used_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await query(`ALTER TABLE alert_rules ENABLE ROW LEVEL SECURITY`);
+    await query(`ALTER TABLE alert_episodes ENABLE ROW LEVEL SECURITY`);
+    await query(`ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY`);
+    await query(`ALTER TABLE device_tokens ENABLE ROW LEVEL SECURITY`);
+    await query(`ALTER TABLE pairing_codes ENABLE ROW LEVEL SECURITY`);
+
+    await query(`
+      INSERT INTO alert_rules (type, enabled, threshold_minutes, channels, quiet_hours, recipients) VALUES
+        ('tracker_offline', TRUE, 5, '["in_app","push"]'::jsonb, '{"start":"22:00","end":"08:00"}'::jsonb, 'all'),
+        ('idle_too_long', TRUE, 15, '["in_app"]'::jsonb, '{"start":"22:00","end":"08:00"}'::jsonb, 'all'),
+        ('break_over_limit', TRUE, 60, '["in_app"]'::jsonb, '{"start":"22:00","end":"08:00"}'::jsonb, 'all'),
+        ('not_clocked_in', TRUE, 0, '["in_app"]'::jsonb, '{"start":"22:00","end":"08:00"}'::jsonb, 'all'),
+        ('missed_clock_out', TRUE, 0, '["in_app"]'::jsonb, '{"start":"22:00","end":"08:00"}'::jsonb, 'all'),
+        ('daily_summary', TRUE, 0, '["in_app"]'::jsonb, '{"start":"22:00","end":"08:00"}'::jsonb, 'all')
+      ON CONFLICT (type) DO NOTHING
+    `);
+
+    await query(`
+      WITH ordered_idle AS (
+        SELECT
+          id,
+          type,
+          LAG(type) OVER (PARTITION BY employee_id, date ORDER BY id) AS prev_type
+        FROM activity_logs
+        WHERE date = (NOW() AT TIME ZONE '${APP_TIMEZONE}')::date
+          AND type IN ('idle_start', 'idle_end')
+      )
+      DELETE FROM activity_logs
+      WHERE id IN (
+        SELECT id FROM ordered_idle
+        WHERE (type = prev_type) OR (type = 'idle_end' AND prev_type IS NULL)
+      )
+    `);
+
     schemaEnsured = true;
   } catch (err) {
     console.error('[ensureSchemaOnce] non-fatal:', err?.message || err);
   }
+}
+
+const REQUIRED_TABLES = [
+  'employees',
+  'attendance',
+  'activity_logs',
+  'tasks',
+  'leaves',
+  'holidays',
+  'settings',
+  'notifications',
+  'audit_logs',
+  'chat_messages',
+  'alert_rules',
+  'alert_episodes',
+  'push_subscriptions',
+  'device_tokens',
+  'pairing_codes',
+];
+
+const REQUIRED_COLUMNS = [
+  ['notifications', 'link'],
+  ['employees', 'joining_date'],
+  ['employees', 'must_change_pin'],
+  ['attendance', 'tracking_mode'],
+];
+
+export async function checkPgSchemaHealth() {
+  const tablesRes = await getAll(
+    `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`
+  );
+  const tableSet = new Set(tablesRes.map((r) => r.table_name));
+  const missingTables = REQUIRED_TABLES.filter((t) => !tableSet.has(t));
+
+  const colsRes = await getAll(
+    `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public'`
+  );
+  const colSet = new Set(colsRes.map((r) => `${r.table_name}.${r.column_name}`));
+  const missingColumns = REQUIRED_COLUMNS
+    .map(([t, c]) => `${t}.${c}`)
+    .filter((k) => !colSet.has(k));
+
+  return {
+    ok: missingTables.length === 0 && missingColumns.length === 0,
+    missingTables,
+    missingColumns,
+  };
 }
 
 export async function query(sql, params = []) {

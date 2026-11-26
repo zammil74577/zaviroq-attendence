@@ -27,11 +27,16 @@ async function main() {
   const today = new Date().toISOString().slice(0, 10);
   const month = today.slice(0, 7);
 
-  // 1. Health check
+  // 1. Health + schema check (fails deploy if migrations are pending)
   const healthPath = baseUrl.includes('localhost') ? '/healthz' : '/api/healthz';
   const { res: hRes, ms: hMs } = await timedFetch(healthPath);
+  const hBodyText = await hRes.text();
   if (hRes.status !== 200) {
-    throw new Error(`${healthPath} returned ${hRes.status} (${hMs}ms): ${await hRes.text()}`);
+    throw new Error(`${healthPath} returned ${hRes.status} (${hMs}ms): ${hBodyText}`);
+  }
+  const hJson = JSON.parse(hBodyText);
+  if (hJson.schema && hJson.schema !== 'ok') {
+    throw new Error(`${healthPath} reported pending migrations: ${hBodyText}`);
   }
   console.log(`✅ ${healthPath} -> 200 (${hMs}ms)`);
 
@@ -55,6 +60,9 @@ async function main() {
     `/api/dashboard?date=${today}`,
     '/api/leaves',
     `/api/reports/monthly?month=${month}`,
+    '/api/alert-rules',
+    '/api/notifications',
+    '/api/devices',
   ];
   for (const ep of endpoints) {
     const { res, ms } = await timedFetch(ep, cookie ? { headers: { Cookie: cookie } } : {});

@@ -914,3 +914,66 @@ test('Desktop Agent: pairing, scoped device token, revocation, desktop priority,
   });
   assert.equal(meAfterRevoke.status, 401, 'Revoked device token must fail immediately with 401');
 });
+
+test('Idle log: single idle_start/idle_end per real state change with source info, never orphan idle_end', async () => {
+  const empLogin = await fetch(`${baseUrl}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identifier: 'ZAV-902', pin: '849201' }),
+  });
+  const cookie = empLogin.headers.get('set-cookie');
+  const emp = db.prepare(`SELECT id FROM employees WHERE emp_code = 'ZAV-902'`).get();
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Clear idle logs for ZAV-902 today and set idle_seconds < 120
+  db.prepare(`DELETE FROM activity_logs WHERE employee_id = ? AND type IN ('idle_start', 'idle_end')`).run(emp.id);
+  db.prepare(`UPDATE attendance SET idle_seconds = 30 WHERE employee_id = ? AND date = ?`).run(emp.id, today);
+  db.prepare(`UPDATE employees SET status = 'idle', active_session_id = 'tab-sess-1', last_heartbeat_at = ? WHERE id = ?`).run(
+    new Date().toISOString(),
+    emp.id
+  );
+
+  // Active heartbeat when no idle_start exists -> MUST NOT write orphan idle_end
+  const hbActive = await fetch(`${baseUrl}/api/activity/heartbeat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify({ state: 'active', trackingMode: 'system', sessionId: 'tab-sess-1', claimSession: true }),
+  });
+  assert.equal(hbActive.status, 200);
+  let logs = db.prepare(`SELECT type, reason FROM activity_logs WHERE employee_id = ? AND type IN ('idle_start', 'idle_end') ORDER BY id ASC`).all(emp.id);
+  assert.equal(logs.length, 0, 'Must never write idle_end without a preceding idle_start');
+
+  // Now set idle_seconds >= 120 and send TWO idle heartbeats -> only ONE idle_start with [system] source
+  db.prepare(`UPDATE attendance SET idle_seconds = 150 WHERE employee_id = ? AND date = ?`).run(emp.id, today);
+  await fetch(`${baseUrl}/api/activity/heartbeat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify({ state: 'idle', trackingMode: 'system', sessionId: 'tab-sess-1' }),
+  });
+  await fetch(`${baseUrl}/api/activity/heartbeat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify({ state: 'idle', trackingMode: 'tab_only', sessionId: 'tab-sess-1' }),
+  });
+  logs = db.prepare(`SELECT type, reason FROM activity_logs WHERE employee_id = ? AND type IN ('idle_start', 'idle_end') ORDER BY id ASC`).all(emp.id);
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0].type, 'idle_start');
+  assert.ok(logs[0].reason.includes('[system]'));
+
+  // Now resume active -> writes ONE idle_end
+  await fetch(`${baseUrl}/api/activity/heartbeat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify({ state: 'active', trackingMode: 'system', sessionId: 'tab-sess-1' }),
+  });
+  logs = db.prepare(`SELECT type, reason FROM activity_logs WHERE employee_id = ? AND type IN ('idle_start', 'idle_end') ORDER BY id ASC`).all(emp.id);
+  assert.equal(logs.length, 2);
+  assert.equal(logs[1].type, 'idle_end');
+  assert.ok(logs[1].reason.includes('[system]'));
+
+  // Release endpoint responds cleanly
+  const relRes = await fetch(`${baseUrl}/api/desktop-agent/release`, { headers: { Cookie: cookie } });
+  assert.equal(relRes.status, 200);
+  const relJson = await relRes.json();
+  assert.equal(typeof relJson.available, 'boolean');
+});

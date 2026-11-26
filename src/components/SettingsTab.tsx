@@ -27,22 +27,33 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ onSaved }) => {
   const [totalActiveEmployees, setTotalActiveEmployees] = useState<number>(0);
   const [pushEnabled, setPushEnabled] = useState<boolean>(false);
   const [pushBusy, setPushBusy] = useState<boolean>(false);
+  const [vapidPublicKey, setVapidPublicKey] = useState<string>('');
+  const [releaseInfo, setReleaseInfo] = useState<{ available: boolean; version?: string; url?: string } | null>(null);
   const [newHolidayDate, setNewHolidayDate] = useState('');
   const [newHolidayName, setNewHolidayName] = useState('');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   const loadAll = async () => {
-    const [sRes, hRes, aRes, dRes, dashRes] = await Promise.all([
+    const [sRes, hRes, aRes, dRes, dashRes, vapidRes, relRes] = await Promise.all([
       fetch('/api/settings'),
       fetch('/api/holidays'),
       fetch('/api/alert-rules'),
       fetch('/api/devices'),
       fetch('/api/dashboard'),
+      fetch('/api/push/vapid-key'),
+      fetch('/api/desktop-agent/release'),
     ]);
     if (sRes.ok) setSettings(await sRes.json());
     if (hRes.ok) setHolidays(await hRes.json());
     if (dRes.ok) setDevices(await dRes.json());
+    if (vapidRes.ok) {
+      const vj = await vapidRes.json();
+      setVapidPublicKey(String(vj.publicKey || ''));
+    }
+    if (relRes.ok) {
+      setReleaseInfo(await relRes.json());
+    }
     if (dashRes.ok) {
       const dj = await dashRes.json();
       setTotalActiveEmployees(Array.isArray(dj.employees) ? dj.employees.length : 0);
@@ -241,19 +252,25 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ onSaved }) => {
                 Receive real-time alerts on desktop, Android, and installed iOS apps.
               </p>
             </div>
-            <button
-              type="button"
-              disabled={pushBusy}
-              onClick={handleTogglePush}
-              className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer ${
-                pushEnabled
-                  ? 'border border-emerald-500/40 bg-emerald-500/15 text-emerald-200'
-                  : 'bg-indigo-600 hover:bg-indigo-500 text-white'
-              }`}
-            >
-              <BellRing className="h-3.5 w-3.5" />
-              {pushBusy ? 'Updating...' : pushEnabled ? 'Notifications Enabled ✓' : 'Enable notifications'}
-            </button>
+            {vapidPublicKey ? (
+              <button
+                type="button"
+                disabled={pushBusy}
+                onClick={handleTogglePush}
+                className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold cursor-pointer ${
+                  pushEnabled
+                    ? 'border border-emerald-500/40 bg-emerald-500/15 text-emerald-200'
+                    : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                }`}
+              >
+                <BellRing className="h-3.5 w-3.5" />
+                {pushBusy ? 'Updating...' : pushEnabled ? 'Notifications Enabled ✓' : 'Enable notifications'}
+              </button>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-200">
+                Push not configured
+              </span>
+            )}
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -382,26 +399,32 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ onSaved }) => {
                   Lightweight Windows &amp; macOS tray app for reliable system idle detection, auto-start at login, and offline heartbeat queuing.
                 </p>
               </div>
-              <div className="flex flex-wrap gap-3">
-                <a
-                  href={releaseBase}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-4 py-2.5 text-xs font-semibold text-white"
-                >
-                  <Download className="h-4 w-4" />
-                  Download for Windows (.exe / .msi)
-                </a>
-                <a
-                  href={releaseBase}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 px-4 py-2.5 text-xs font-semibold text-white"
-                >
-                  <Download className="h-4 w-4" />
-                  Download for macOS (.dmg Universal)
-                </a>
-              </div>
+              {releaseInfo?.available ? (
+                <div className="flex flex-wrap gap-3">
+                  <a
+                    href={releaseInfo.url || releaseBase}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-4 py-2.5 text-xs font-semibold text-white"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download for Windows (.exe / .msi)
+                  </a>
+                  <a
+                    href={releaseInfo.url || releaseBase}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 px-4 py-2.5 text-xs font-semibold text-white"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download for macOS (.dmg Universal)
+                  </a>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3 text-xs text-slate-300">
+                  Desktop app coming soon — no release installers published yet.
+                </div>
+              )}
             </div>
           </div>
         );

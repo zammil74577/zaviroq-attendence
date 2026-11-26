@@ -488,6 +488,28 @@ export function runMigrations() {
       )
   `).run();
 
+  // Clean up today's duplicate idle_start/idle_end and orphan idle_end rows (audit_logs untouched)
+  const todayStr = getTodayDate();
+  const todayIdleRows = db.prepare(`
+    SELECT id, employee_id, type FROM activity_logs
+    WHERE date = ? AND type IN ('idle_start', 'idle_end')
+    ORDER BY employee_id ASC, id ASC
+  `).all(todayStr);
+  const lastIdleByEmp = new Map();
+  const badIdleIds = [];
+  for (const row of todayIdleRows) {
+    const prev = lastIdleByEmp.get(row.employee_id) || null;
+    if (row.type === prev || (row.type === 'idle_end' && prev !== 'idle_start')) {
+      badIdleIds.push(row.id);
+    } else {
+      lastIdleByEmp.set(row.employee_id, row.type);
+    }
+  }
+  if (badIdleIds.length > 0) {
+    const delIdle = db.prepare(`DELETE FROM activity_logs WHERE id = ?`);
+    for (const id of badIdleIds) delIdle.run(id);
+  }
+
   // Relabel all clock_in logs on 2026-11-25 using Asia/Kolkata local time
   const clockIns = db.prepare(`
     SELECT l.id, l.timestamp, e.shift_start, e.shift_end

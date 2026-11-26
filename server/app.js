@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import {
   APP_TIMEZONE,
   ensureSchemaOnce,
+  checkPgSchemaHealth,
   query,
   getOne,
   getAll,
@@ -292,10 +293,28 @@ app.get('/api/health', (_req, res) => {
 app.get('/api/healthz', async (_req, res) => {
   try {
     await query('SELECT 1');
-    res.json({ ok: true, db: 'ok', timezone: APP_TIMEZONE });
+    await ensureSchemaOnce();
+    const schema = await checkPgSchemaHealth();
+    if (!schema.ok) {
+      return res.status(503).json({
+        ok: false,
+        db: 'schema_incomplete',
+        missingTables: schema.missingTables,
+        missingColumns: schema.missingColumns,
+      });
+    }
+    res.json({ ok: true, db: 'ok', schema: 'ok', timezone: APP_TIMEZONE });
   } catch (err) {
-    res.status(503).json({ ok: false, db: 'error', message: err.message });
+    const errorId = crypto.randomUUID();
+    console.error(`[healthz] id=${errorId}`, err);
+    res.status(503).json({ ok: false, db: 'error', id: errorId });
   }
+});
+
+app.use('/api', async (req, _res, next) => {
+  if (req.path === '/health' || req.path === '/healthz') return next();
+  await ensureSchemaOnce();
+  next();
 });
 
 function verifyCronSecret(req, res, next) {
@@ -885,24 +904,49 @@ app.post('/api/activity/heartbeat', async (req, res) => {
     );
   }
 
-  if (emp.status !== state) {
-    let logType = null;
-    if (state === 'break') logType = 'break_start';
-    else if (emp.status === 'break' && state === 'active') logType = 'break_end';
-    else if (state === 'idle' && (att.idle_seconds || 0) >= 120) logType = 'idle_start';
-    else if (emp.status === 'idle' && state === 'active' && (att.idle_seconds || 0) >= 120) logType = 'idle_end';
+  const sourceLabel = isDesktopAgent ? 'desktop_agent' : (trackingMode === 'system' || trackingMode === 'app_system' ? 'system' : 'tab_only');
 
-    if (logType) {
-      const latestLog = await getOne(
-        `SELECT id, timestamp FROM activity_logs WHERE employee_id = $1 AND date = $2::date AND type IN ('idle_start', 'idle_end', 'break_start', 'break_end') ORDER BY id DESC LIMIT 1`,
+  // Break transitions (separate from idle transitions; collapse rapid bursts within 10s)
+  if (emp.status !== state) {
+    let breakType = null;
+    if (state === 'break') breakType = 'break_start';
+    else if (emp.status === 'break' && state === 'active') breakType = 'break_end';
+    if (breakType) {
+      const latestBreak = await getOne(
+        `SELECT id, timestamp FROM activity_logs WHERE employee_id = $1 AND date = $2::date AND type IN ('break_start', 'break_end') ORDER BY id DESC LIMIT 1`,
         [employeeId, today]
       );
-      if (latestLog && now.getTime() - new Date(latestLog.timestamp).getTime() <= 10000) {
-        await query(`UPDATE activity_logs SET type = $1, reason = $2, timestamp = NOW() WHERE id = $3`, [logType, reason || `Switched to ${state}`, latestLog.id]);
+      if (latestBreak && now.getTime() - new Date(latestBreak.timestamp).getTime() <= 10000) {
+        await query(`UPDATE activity_logs SET type = $1, reason = $2, timestamp = NOW() WHERE id = $3`, [
+          breakType,
+          `${reason || `Switched to ${state}`} [${sourceLabel}]`,
+          latestBreak.id,
+        ]);
       } else {
-        await query(`INSERT INTO activity_logs (employee_id, date, type, reason, timestamp) VALUES ($1, $2::date, $3, $4, NOW())`, [employeeId, today, logType, reason || `Switched to ${state}`]);
+        await query(
+          `INSERT INTO activity_logs (employee_id, date, type, reason, timestamp) VALUES ($1, $2::date, $3, $4, NOW())`,
+          [employeeId, today, breakType, `${reason || `Switched to ${state}`} [${sourceLabel}]`]
+        );
       }
     }
+  }
+
+  // Idle transitions: ONE event per real state change, never write idle_end without preceding idle_start
+  const latestIdleLog = await getOne(
+    `SELECT id, type FROM activity_logs WHERE employee_id = $1 AND date = $2::date AND type IN ('idle_start', 'idle_end') ORDER BY id DESC LIMIT 1`,
+    [employeeId, today]
+  );
+  const currentlyIdleLogged = latestIdleLog?.type === 'idle_start';
+  if (state === 'idle' && (att.idle_seconds || 0) >= 120 && !currentlyIdleLogged) {
+    await query(
+      `INSERT INTO activity_logs (employee_id, date, type, reason, timestamp) VALUES ($1, $2::date, 'idle_start', $3, NOW())`,
+      [employeeId, today, `${reason || 'Idle detected'} [${sourceLabel}]`]
+    );
+  } else if ((state === 'active' || state === 'break') && currentlyIdleLogged) {
+    await query(
+      `INSERT INTO activity_logs (employee_id, date, type, reason, timestamp) VALUES ($1, $2::date, 'idle_end', $3, NOW())`,
+      [employeeId, today, `${reason || 'Activity resumed'} [${sourceLabel}]`]
+    );
   }
 
   await query(
@@ -1538,6 +1582,39 @@ app.put('/api/alert-rules/:type', requireRole('admin'), async (req, res) => {
   res.json(updated);
 });
 
+let cachedReleaseInfo = { checkedAt: 0, data: { available: false } };
+app.get('/api/desktop-agent/release', requireRole('admin', 'manager', 'employee'), async (_req, res) => {
+  const nowMs = Date.now();
+  if (nowMs - cachedReleaseInfo.checkedAt < 10 * 60 * 1000) {
+    return res.json(cachedReleaseInfo.data);
+  }
+  try {
+    const ghRes = await fetch('https://api.github.com/repos/zammil74577/zaviroq-attendence/releases/latest', {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'zaviroq-workforce' },
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!ghRes.ok) {
+      cachedReleaseInfo = { checkedAt: nowMs, data: { available: false } };
+      return res.json(cachedReleaseInfo.data);
+    }
+    const ghJson = await ghRes.json();
+    const assets = Array.isArray(ghJson.assets) ? ghJson.assets : [];
+    const data = assets.length > 0
+      ? {
+          available: true,
+          version: ghJson.tag_name || 'v1.0.0',
+          url: ghJson.html_url || 'https://github.com/zammil74577/zaviroq-attendence/releases/latest',
+          assets: assets.map((a) => ({ name: a.name, url: a.browser_download_url })),
+        }
+      : { available: false };
+    cachedReleaseInfo = { checkedAt: nowMs, data };
+    return res.json(data);
+  } catch {
+    cachedReleaseInfo = { checkedAt: nowMs, data: { available: false } };
+    return res.json(cachedReleaseInfo.data);
+  }
+});
+
 app.get('/api/push/vapid-key', requireRole('admin', 'manager'), (_req, res) => {
   res.json({ publicKey: process.env.VAPID_PUBLIC_KEY || '' });
 });
@@ -1779,9 +1856,11 @@ app.post('/api/chat/messages', async (req, res) => {
 });
 
 app.use((err, req, res, _next) => {
-  console.error(`[API Error] ${req.method} ${req.path}:`, err?.message || err);
+  const errorId = crypto.randomUUID();
+  console.error(`[API Error] id=${errorId} ${req.method} ${req.path}:`, err);
   if (!res.headersSent) {
-    res.status(503).json({ error: err?.message || 'Service temporarily unavailable' });
+    const status = err?.status && err.status >= 400 && err.status < 500 ? err.status : 500;
+    res.status(status).json({ error: 'Internal error', id: errorId });
   }
 });
 
