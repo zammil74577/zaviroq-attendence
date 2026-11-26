@@ -117,7 +117,13 @@ export const MascotChatbot: React.FC<MascotChatbotProps> = ({
   };
 
   return (
-    <div className="fixed bottom-4 left-4 lg:left-[276px] z-40 flex flex-col items-start gap-2">
+    <div
+      className={`fixed z-40 flex flex-col items-start gap-2 ${
+        isOpen
+          ? 'bottom-4 left-4 lg:left-[276px]'
+          : 'bottom-4 left-4 lg:bottom-[108px] lg:left-4'
+      }`}
+    >
       {/* Expanded Floating Chatbot Window with Zavi OUTSIDE & ABOVE on the Top Border */}
       {isOpen && (
         <div className="relative mt-24 w-[360px] max-w-[calc(100vw-2rem)]">
@@ -283,9 +289,9 @@ export const MascotChatbot: React.FC<MascotChatbotProps> = ({
         </div>
       )}
 
-      {/* Closed State: Bottom-Left Zavi + Collapsible White Speech Bubble */}
+      {/* Closed State: Bottom-Left Sidebar Slot (Desktop) / Corner (Mobile) */}
       {!isOpen && (
-        <div className="flex items-end gap-2.5">
+        <div className="flex items-end gap-2 lg:max-w-[228px]">
           <button
             onClick={() => setIsOpen(true)}
             className="relative bg-transparent border-0 p-0 hover:scale-105 transition-transform cursor-pointer focus:outline-none shrink-0"
@@ -300,7 +306,7 @@ export const MascotChatbot: React.FC<MascotChatbotProps> = ({
             )}
           </button>
           {!bubbleDismissed && (
-            <div className="hidden sm:flex items-start gap-2 max-w-[210px] rounded-2xl border border-[var(--zv-border)] bg-[var(--zv-surface)] px-3 py-2 shadow-[0_8px_24px_rgba(91,72,180,0.12)] text-xs text-[var(--zv-text)] mb-2">
+            <div className="hidden sm:flex items-start gap-1.5 max-w-[156px] rounded-2xl border border-[var(--zv-border)] bg-[var(--zv-surface)] px-2.5 py-2 shadow-[0_8px_24px_rgba(91,72,180,0.12)] text-[11px] text-[var(--zv-text)] mb-1">
               <button
                 type="button"
                 onClick={() => setIsOpen(true)}
