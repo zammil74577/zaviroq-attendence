@@ -2,15 +2,31 @@ import React from 'react';
 import type { AttendanceStatus, LiveStatus, TaskPriority, TaskStatus } from '../types';
 
 export const LiveStatusBadge: React.FC<{ status: LiveStatus }> = ({ status }) => {
-  const styles: Record<LiveStatus, { bg: string; dot: string; label: string }> = {
-    active: { bg: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30', dot: 'bg-emerald-400 animate-pulse', label: 'Active' },
-    idle: { bg: 'bg-amber-500/15 text-amber-300 border-amber-500/30', dot: 'bg-amber-400', label: 'Idle' },
-    break: { bg: 'bg-sky-500/15 text-sky-300 border-sky-500/30', dot: 'bg-sky-400', label: 'On Break' },
-    offline: { bg: 'bg-slate-700/40 text-slate-400 border-slate-600/40', dot: 'bg-slate-500', label: 'Offline' },
+  const styles: Record<LiveStatus, { cls: string; dot: string; label: string }> = {
+    active: {
+      cls: 'bg-[#E8F8EE] text-[#16A34A] border-[#BBF7D0]',
+      dot: 'bg-[#16A34A] animate-pulse',
+      label: 'Active',
+    },
+    idle: {
+      cls: 'bg-[#FFF4E0] text-[#D97706] border-[#FDE68A]',
+      dot: 'bg-[#D97706]',
+      label: 'Idle',
+    },
+    break: {
+      cls: 'bg-[#E8F0FF] text-[#2563EB] border-[#BFDBFE]',
+      dot: 'bg-[#2563EB]',
+      label: 'On Break',
+    },
+    offline: {
+      cls: 'bg-[#F1F1F4] text-[#6B7280] border-[#E5E7EB]',
+      dot: 'bg-[#6B7280]',
+      label: 'Offline',
+    },
   };
   const s = styles[status] || styles.offline;
   return (
-    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-medium ${s.bg}`}>
+    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${s.cls}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
       {s.label}
     </span>
@@ -19,11 +35,11 @@ export const LiveStatusBadge: React.FC<{ status: LiveStatus }> = ({ status }) =>
 
 export const AttendanceBadge: React.FC<{ status: AttendanceStatus }> = ({ status }) => {
   const styles: Record<AttendanceStatus, string> = {
-    present: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
-    late: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-    half_day: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30',
-    on_leave: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
-    absent: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+    present: 'bg-[#E8F8EE] text-[#16A34A] border-[#BBF7D0]',
+    late: 'bg-[#FFEDE3] text-[#EA580C] border-[#FED7AA]',
+    half_day: 'bg-[#EFEAFF] text-[#6D4AFF] border-[#DDD6FE]',
+    on_leave: 'bg-[#E8F0FF] text-[#2563EB] border-[#BFDBFE]',
+    absent: 'bg-[#FDECEC] text-[#DC2626] border-[#FECACA]',
   };
   const labels: Record<AttendanceStatus, string> = {
     present: 'Present',
@@ -33,7 +49,7 @@ export const AttendanceBadge: React.FC<{ status: AttendanceStatus }> = ({ status
     absent: 'Absent',
   };
   return (
-    <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${styles[status] || styles.absent}`}>
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${styles[status] || styles.absent}`}>
       {labels[status] || status}
     </span>
   );
@@ -41,25 +57,26 @@ export const AttendanceBadge: React.FC<{ status: AttendanceStatus }> = ({ status
 
 export const PriorityBadge: React.FC<{ priority: TaskPriority }> = ({ priority }) => {
   const styles: Record<TaskPriority, string> = {
-    urgent: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
-    high: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
-    medium: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
-    low: 'bg-slate-700/40 text-slate-300 border-slate-600/40',
+    urgent: 'bg-[#FDECEC] text-[#DC2626] border-[#FECACA]',
+    high: 'bg-[#FDE8F1] text-[#DB2777] border-[#FBCFE8]',
+    medium: 'bg-[#E8F0FF] text-[#2563EB] border-[#BFDBFE]',
+    low: 'bg-[#F1F1F4] text-[#6B7280] border-[#E5E7EB]',
   };
+  const label = priority.charAt(0).toUpperCase() + priority.slice(1);
   return (
-    <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${styles[priority]}`}>
-      {priority}
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${styles[priority]}`}>
+      {label}
     </span>
   );
 };
 
 export const TaskStatusBadge: React.FC<{ status: TaskStatus }> = ({ status }) => {
   const styles: Record<TaskStatus, string> = {
-    pending: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-    in_progress: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30',
-    review: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
-    completed: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
-    blocked: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+    pending: 'bg-[#EFEAFF] text-[#6D4AFF] border-[#DDD6FE]',
+    in_progress: 'bg-[#E8F0FF] text-[#2563EB] border-[#BFDBFE]',
+    review: 'bg-[#FFF4E0] text-[#D97706] border-[#FDE68A]',
+    completed: 'bg-[#E8F8EE] text-[#16A34A] border-[#BBF7D0]',
+    blocked: 'bg-[#FDECEC] text-[#DC2626] border-[#FECACA]',
   };
   const labels: Record<TaskStatus, string> = {
     pending: 'Pending',
@@ -69,7 +86,7 @@ export const TaskStatusBadge: React.FC<{ status: TaskStatus }> = ({ status }) =>
     blocked: 'Blocked',
   };
   return (
-    <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${styles[status]}`}>
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${styles[status]}`}>
       {labels[status]}
     </span>
   );

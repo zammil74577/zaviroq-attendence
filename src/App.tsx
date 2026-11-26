@@ -42,6 +42,31 @@ export function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<{ prompt: () => Promise<void> } | null>(null);
   const [showInstallGuide, setShowInstallGuide] = useState(false);
   const [pairingCodeInfo, setPairingCodeInfo] = useState<{ code: string; expiresAt: string } | null>(null);
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+
+  useEffect(() => {
+    const key = `zaviroq_theme_${authUser?.id || 'default'}`;
+    try {
+      const saved = localStorage.getItem(key);
+      const next: 'light' | 'dark' = saved === 'dark' ? 'dark' : 'light';
+      setTheme(next);
+      document.documentElement.setAttribute('data-theme', next);
+    } catch {
+      document.documentElement.setAttribute('data-theme', 'light');
+    }
+  }, [authUser?.id]);
+
+  const toggleTheme = () => {
+    const next: 'light' | 'dark' = theme === 'light' ? 'dark' : 'light';
+    setTheme(next);
+    document.documentElement.setAttribute('data-theme', next);
+    const key = `zaviroq_theme_${authUser?.id || 'default'}`;
+    try {
+      localStorage.setItem(key, next);
+    } catch {
+      // ignore
+    }
+  };
   const isStandalone =
     typeof window !== 'undefined' &&
     (window.matchMedia?.('(display-mode: standalone)').matches ||
@@ -331,8 +356,11 @@ export function App() {
 
   if (authChecking) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-300 text-sm">
-        Verifying session...
+      <div className="min-h-screen bg-gradient-to-b from-[#F7F5FF] to-white flex items-center justify-center p-6">
+        <div className="w-full max-w-md space-y-4">
+          <div className="zv-skeleton h-10 w-48 mx-auto" />
+          <div className="zv-skeleton h-32 w-full" />
+        </div>
       </div>
     );
   }
@@ -389,8 +417,17 @@ export function App() {
 
   if (loading && !data) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-300 text-sm">
-        Initializing Zaviroq Workforce OS...
+      <div className="min-h-screen bg-gradient-to-b from-[#F7F5FF] to-white p-6 sm:p-10">
+        <div className="max-w-7xl mx-auto space-y-6">
+          <div className="zv-skeleton h-36 w-full rounded-[24px]" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div className="zv-skeleton h-28" />
+            <div className="zv-skeleton h-28" />
+            <div className="zv-skeleton h-28" />
+            <div className="zv-skeleton h-28" />
+          </div>
+          <div className="zv-skeleton h-72 w-full" />
+        </div>
       </div>
     );
   }
@@ -436,7 +473,19 @@ export function App() {
     : (data?.summary.idleNowCount || 0);
 
   return (
-    <div className="min-h-screen flex bg-slate-950 text-slate-100">
+    <div className="min-h-screen flex bg-gradient-to-b from-[var(--zv-bg-start)] to-[var(--zv-bg-end)] text-[var(--zv-text)] relative overflow-x-hidden">
+      {/* Subtle bottom wave decoration */}
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 1440 120"
+        preserveAspectRatio="none"
+        className="pointer-events-none fixed bottom-0 left-0 right-0 w-full h-20 opacity-45 z-0"
+      >
+        <path
+          d="M0,64 C320,110 640,20 960,72 C1200,110 1350,55 1440,40 L1440,120 L0,120 Z"
+          fill={theme === 'light' ? '#EFEAFF' : 'rgba(79,70,229,0.08)'}
+        />
+      </svg>
       <Sidebar
         activeTab={activeTab}
         onSelectTab={setActiveTab}
@@ -480,6 +529,8 @@ export function App() {
           onOpenMobileMenu={() => setMobileMenuOpen(true)}
           selectedDate={selectedDate}
           isSyncing={isSyncing}
+          theme={theme}
+          onToggleTheme={toggleTheme}
         />
 
         <main className="flex-1 p-4 sm:p-6 pb-24 max-w-[1600px] w-full mx-auto space-y-5">

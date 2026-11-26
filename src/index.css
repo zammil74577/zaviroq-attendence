@@ -1,17 +1,67 @@
 @import "tailwindcss";
 
+:root,
+[data-theme="light"] {
+  --zv-bg-start: #F7F5FF;
+  --zv-bg-end: #FFFFFF;
+  --zv-surface: #FFFFFF;
+  --zv-surface-subtle: #FAF8FF;
+  --zv-border: #ECE9F7;
+  --zv-border-strong: #DDD6FE;
+  --zv-text: #1A1635;
+  --zv-text-secondary: #4B4668;
+  --zv-muted: #6B6785;
+  --zv-primary: #6D4AFF;
+  --zv-primary-end: #8B5CF6;
+  --zv-shadow: 0 8px 24px rgba(91, 72, 180, 0.08);
+  --zv-shadow-hover: 0 14px 32px rgba(91, 72, 180, 0.14);
+  --zv-danger: #E11D48;
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --zv-bg-start: #020617;
+  --zv-bg-end: #020617;
+  --zv-surface: rgba(15, 23, 42, 0.78);
+  --zv-surface-subtle: rgba(2, 6, 23, 0.6);
+  --zv-border: #1e293b;
+  --zv-border-strong: #334155;
+  --zv-text: #f8fafc;
+  --zv-text-secondary: #cbd5e1;
+  --zv-muted: #94a3b8;
+  --zv-primary: #4f46e5;
+  --zv-primary-end: #7c3aed;
+  --zv-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --zv-shadow-hover: 0 12px 30px rgba(0, 0, 0, 0.5);
+  --zv-danger: #e11d48;
+  color-scheme: dark;
+}
+
 @layer base {
   body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: linear-gradient(180deg, var(--zv-bg-start) 0%, var(--zv-bg-end) 100%);
+    color: var(--zv-text);
+    min-height: 100vh;
+    overflow-x: hidden;
   }
 
-  .font-mono-num {
-    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  h1, h2, h3, .font-heading {
+    font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  .font-mono-num,
+  .tabular-nums {
     font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    outline: 2px solid #6D4AFF;
+    outline-offset: 2px;
   }
 }
 
-/* Custom subtle scrollbars */
+/* Custom thin violet scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -20,20 +70,201 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.22);
+  background: rgba(109, 74, 255, 0.25);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.4);
+  background: rgba(109, 74, 255, 0.48);
 }
 
-/* Prevent browser autofill from turning dark inputs bright white */
-input:-webkit-autofill,
-input:-webkit-autofill:hover,
-input:-webkit-autofill:focus {
+/* Premium Light card & surface utilities */
+.zv-card {
+  background: var(--zv-surface);
+  border: 1px solid var(--zv-border);
+  border-radius: 20px;
+  box-shadow: var(--zv-shadow);
+  transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+}
+
+.zv-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--zv-shadow-hover);
+}
+
+.zv-btn-primary {
+  background: linear-gradient(135deg, #6D4AFF 0%, #8B5CF6 100%);
+  color: #FFFFFF;
+  box-shadow: 0 6px 16px rgba(109, 74, 255, 0.24);
+  transition: transform 150ms ease, box-shadow 150ms ease, filter 150ms ease;
+}
+.zv-btn-primary:hover {
+  filter: brightness(1.05);
+  box-shadow: 0 8px 20px rgba(109, 74, 255, 0.34);
+}
+
+/* Lavender shimmer skeleton */
+@keyframes zv-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.zv-skeleton {
+  background: linear-gradient(90deg, #F3F0FF 25%, #E9E3FF 50%, #F3F0FF 75%);
+  background-size: 200% 100%;
+  animation: zv-shimmer 1.5s infinite linear;
+  border-radius: 12px;
+}
+
+/* =========================================================
+   PREMIUM LIGHT THEME GLOBAL ADAPTATION FOR EXISTING TABS
+   Maps existing dark Tailwind classes cleanly when light
+   theme is active, preserving 4.5:1+ contrast & layout.
+   ========================================================= */
+[data-theme="light"] .bg-slate-950,
+[data-theme="light"] .bg-slate-950\/90,
+[data-theme="light"] .bg-slate-950\/80,
+[data-theme="light"] .bg-slate-950\/70,
+[data-theme="light"] .bg-slate-950\/60 {
+  background-color: #FAF8FF !important;
+}
+
+[data-theme="light"] .bg-slate-900,
+[data-theme="light"] .bg-slate-900\/95,
+[data-theme="light"] .bg-slate-900\/90,
+[data-theme="light"] .bg-slate-900\/80,
+[data-theme="light"] .bg-slate-900\/75,
+[data-theme="light"] .bg-slate-900\/70,
+[data-theme="light"] .bg-slate-900\/60 {
+  background-color: #FFFFFF !important;
+  box-shadow: 0 8px 24px rgba(91, 72, 180, 0.06);
+}
+
+[data-theme="light"] .bg-slate-800,
+[data-theme="light"] .bg-slate-800\/80,
+[data-theme="light"] .bg-slate-800\/70,
+[data-theme="light"] .bg-slate-800\/60 {
+  background-color: #F3F0FF !important;
+}
+
+[data-theme="light"] .border-slate-800,
+[data-theme="light"] .border-slate-800\/90,
+[data-theme="light"] .border-slate-800\/80,
+[data-theme="light"] .border-slate-700 {
+  border-color: #ECE9F7 !important;
+}
+
+[data-theme="light"] .text-white {
+  color: #1A1635 !important;
+}
+[data-theme="light"] .text-slate-100,
+[data-theme="light"] .text-slate-200 {
+  color: #262044 !important;
+}
+[data-theme="light"] .text-slate-300 {
+  color: #4B4668 !important;
+}
+[data-theme="light"] .text-slate-400,
+[data-theme="light"] .text-slate-500 {
+  color: #6B6785 !important;
+}
+
+/* Preserve white text on solid/gradient colored buttons & badges */
+[data-theme="light"] button.bg-indigo-600,
+[data-theme="light"] button.bg-emerald-600,
+[data-theme="light"] button.bg-rose-600,
+[data-theme="light"] button.bg-rose-600\/90,
+[data-theme="light"] button.bg-violet-600,
+[data-theme="light"] a.bg-indigo-600,
+[data-theme="light"] .zv-btn-primary,
+[data-theme="light"] .zv-text-white-keep,
+[data-theme="light"] .bg-rose-500.text-white,
+[data-theme="light"] .bg-gradient-to-br.text-white,
+[data-theme="light"] .bg-gradient-to-r.text-white {
+  color: #FFFFFF !important;
+}
+
+/* High-contrast status text in light mode */
+[data-theme="light"] .text-emerald-300,
+[data-theme="light"] .text-emerald-200 {
+  color: #15803D !important;
+}
+[data-theme="light"] .text-amber-300,
+[data-theme="light"] .text-amber-200 {
+  color: #B45309 !important;
+}
+[data-theme="light"] .text-rose-300,
+[data-theme="light"] .text-rose-200,
+[data-theme="light"] .text-rose-400 {
+  color: #BE123C !important;
+}
+[data-theme="light"] .text-indigo-300,
+[data-theme="light"] .text-indigo-200,
+[data-theme="light"] .text-indigo-400 {
+  color: #5B3CE6 !important;
+}
+[data-theme="light"] .text-sky-300,
+[data-theme="light"] .text-sky-200,
+[data-theme="light"] .text-cyan-300,
+[data-theme="light"] .text-cyan-400 {
+  color: #1D4ED8 !important;
+}
+
+/* Table polish in light mode: 56px rows, sticky header, #FAF8FF hover */
+[data-theme="light"] table thead th {
+  background-color: #FAF8FF !important;
+  color: #6B6785 !important;
+  font-size: 11px !important;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid #ECE9F7 !important;
+}
+[data-theme="light"] table tbody tr {
+  min-height: 56px;
+  border-bottom: 1px solid #F1EEF9 !important;
+  transition: background-color 150ms ease;
+}
+[data-theme="light"] table tbody tr:hover {
+  background-color: #FAF8FF !important;
+}
+[data-theme="light"] table tbody td {
+  padding-top: 0.875rem;
+  padding-bottom: 0.875rem;
+}
+
+/* Inputs & selects in light mode */
+[data-theme="light"] input,
+[data-theme="light"] select,
+[data-theme="light"] textarea {
+  background-color: #FFFFFF !important;
+  color: #1A1635 !important;
+  border-color: #DDD6FE !important;
+}
+[data-theme="light"] input::placeholder,
+[data-theme="light"] textarea::placeholder {
+  color: #8C87A6 !important;
+}
+
+/* Autofill fix per theme */
+[data-theme="dark"] input:-webkit-autofill,
+[data-theme="dark"] input:-webkit-autofill:hover,
+[data-theme="dark"] input:-webkit-autofill:focus {
   -webkit-text-fill-color: #f8fafc !important;
   -webkit-box-shadow: 0 0 0px 1000px #090d1a inset !important;
   transition: background-color 5000s ease-in-out 0s;
+}
+[data-theme="light"] input:-webkit-autofill,
+[data-theme="light"] input:-webkit-autofill:hover,
+[data-theme="light"] input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #1A1635 !important;
+  -webkit-box-shadow: 0 0 0px 1000px #FFFFFF inset !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 @keyframes scanner-sweep {

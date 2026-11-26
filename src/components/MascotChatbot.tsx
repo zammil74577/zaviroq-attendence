@@ -19,6 +19,22 @@ export const MascotChatbot: React.FC<MascotChatbotProps> = ({
   todayDate,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [bubbleDismissed, setBubbleDismissed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('zavi_bubble_dismissed') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const dismissBubble = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setBubbleDismissed(true);
+    try {
+      localStorage.setItem('zavi_bubble_dismissed', '1');
+    } catch {
+      // ignore
+    }
+  };
   const [moodOverride, setMoodOverride] = useState<'auto' | MascotMood>('auto');
   const [isCurious, setIsCurious] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -101,7 +117,7 @@ export const MascotChatbot: React.FC<MascotChatbotProps> = ({
   };
 
   return (
-    <div className="fixed bottom-4 left-4 lg:left-[17rem] z-50 flex flex-col items-start gap-2">
+    <div className="fixed bottom-4 left-4 z-40 flex flex-col items-start gap-2">
       {/* Expanded Floating Chatbot Window with Zavi OUTSIDE & ABOVE on the Top Border */}
       {isOpen && (
         <div className="relative mt-24 w-[360px] max-w-[calc(100vw-2rem)]">
@@ -267,21 +283,43 @@ export const MascotChatbot: React.FC<MascotChatbotProps> = ({
         </div>
       )}
 
-      {/* Closed State: Compact Corner Toggle Button (never covers table rows) */}
+      {/* Closed State: Bottom-Left Zavi + Collapsible White Speech Bubble */}
       {!isOpen && (
-        <button
-          onClick={() => setIsOpen(true)}
-          className="relative bg-transparent border-0 p-0 hover:scale-105 transition-transform cursor-pointer focus:outline-none"
-          aria-label="Toggle Zavi Mascot Chatbot"
-          title="Click to chat with Zavi"
-        >
-          <ZaviCharacterStage mood={mood} size="md" />
-          {myPending.length > 0 && (
-            <span className="absolute -top-1 -right-1 h-5 min-w-5 px-1 rounded-full bg-amber-500 text-slate-950 text-[10px] font-bold flex items-center justify-center border border-slate-900 font-mono-num shadow">
-              {myPending.length}
-            </span>
+        <div className="flex items-end gap-2.5">
+          <button
+            onClick={() => setIsOpen(true)}
+            className="relative bg-transparent border-0 p-0 hover:scale-105 transition-transform cursor-pointer focus:outline-none shrink-0"
+            aria-label="Toggle Zavi Mascot Chatbot"
+            title="Click to chat with Zavi"
+          >
+            <ZaviCharacterStage mood={mood} size="md" />
+            {myPending.length > 0 && (
+              <span className="absolute -top-1 -right-1 h-5 min-w-5 px-1 rounded-full bg-[#6D4AFF] text-white text-[10px] font-bold flex items-center justify-center border-2 border-white font-mono-num shadow zv-text-white-keep">
+                {myPending.length}
+              </span>
+            )}
+          </button>
+          {!bubbleDismissed && (
+            <div className="hidden sm:flex items-start gap-2 max-w-[210px] rounded-2xl border border-[var(--zv-border)] bg-[var(--zv-surface)] px-3 py-2 shadow-[0_8px_24px_rgba(91,72,180,0.12)] text-xs text-[var(--zv-text)] mb-2">
+              <button
+                type="button"
+                onClick={() => setIsOpen(true)}
+                className="text-left leading-snug cursor-pointer"
+              >
+                <span className="font-bold text-[#6D4AFF]">Need help?</span>{' '}
+                <span className="text-[var(--zv-text-secondary)]">I&apos;m Zavi, your workforce assistant. 👋</span>
+              </button>
+              <button
+                type="button"
+                onClick={dismissBubble}
+                aria-label="Dismiss Zavi greeting"
+                className="text-[var(--zv-muted)] hover:text-[var(--zv-text)] p-0.5 cursor-pointer shrink-0"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
           )}
-        </button>
+        </div>
       )}
     </div>
   );
