@@ -987,3 +987,40 @@ test('Idle log: single idle_start/idle_end per real state change with source inf
   const cronBody = await cronAdmin.json();
   assert.ok('lastRunAt' in cronBody && 'rulesEvaluated' in cronBody);
 });
+
+test('Self-service profile update: employee can update name/email/avatar_color/PIN, cannot escalate role/dept', async () => {
+  const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identifier: 'ZAV-902', pin: '849201' }),
+  });
+  const cookie = loginRes.headers.get('set-cookie');
+
+  // Attempt to update name + color + sneak role:'admin'
+  const patchRes = await fetch(`${baseUrl}/api/profile`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify({
+      name: 'Sales Rep Updated',
+      email: 'salesrep.updated@zaviroq.com',
+      avatar_color: '#6D4AFF',
+      role: 'admin',
+      department: 'Executive',
+    }),
+  });
+  assert.equal(patchRes.status, 200);
+  const patchBody = await patchRes.json();
+  assert.equal(patchBody.employee.name, 'Sales Rep Updated');
+  assert.equal(patchBody.employee.email, 'salesrep.updated@zaviroq.com');
+  assert.equal(patchBody.employee.avatar_color, '#6D4AFF');
+  assert.equal(patchBody.employee.role, 'employee', 'Self profile update must never escalate role');
+  assert.equal(patchBody.employee.department, 'Sales', 'Self profile update must never change department');
+
+  // Wrong currentPin rejected with 401
+  const badPinRes = await fetch(`${baseUrl}/api/profile`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify({ currentPin: '000000', newPin: '395821' }),
+  });
+  assert.equal(badPinRes.status, 401);
+});

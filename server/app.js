@@ -493,6 +493,62 @@ app.post('/api/auth/change-pin', requireAuth, async (req, res) => {
   res.json({ ok: true, employee: sanitizeEmployee(updated) });
 });
 
+app.patch('/api/profile', requireAuth, async (req, res) => {
+  const existing = await getOne('SELECT * FROM employees WHERE id = $1 AND is_active = TRUE', [req.user.id]);
+  if (!existing) return res.status(404).json({ error: 'Employee not found.' });
+
+  const { name, email, avatar_color, currentPin, newPin } = req.body || {};
+  const nextName = name !== undefined ? String(name).trim() : existing.name;
+  const nextEmail = email !== undefined ? String(email).trim().toLowerCase() : existing.email;
+  const nextColor = avatar_color !== undefined ? String(avatar_color).trim() : existing.avatar_color;
+
+  if (!nextName || nextName.length < 2 || nextName.length > 80) {
+    return res.status(400).json({ error: 'Name must be between 2 and 80 characters.' });
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) {
+    return res.status(400).json({ error: 'Please enter a valid work email address.' });
+  }
+  if (!/^#[0-9a-fA-F]{6}$/.test(nextColor)) {
+    return res.status(400).json({ error: 'Avatar color must be a valid 6-digit hex color.' });
+  }
+
+  const dup = await getOne('SELECT id FROM employees WHERE LOWER(email) = LOWER($1) AND id != $2', [nextEmail, req.user.id]);
+  if (dup) {
+    return res.status(409).json({ error: 'That email address is already used by another team member.' });
+  }
+
+  let nextPinHash = existing.pin;
+  let pinChanged = false;
+  if (newPin !== undefined && String(newPin).trim() !== '') {
+    if (!currentPin || !verifyPin(String(currentPin), existing.pin)) {
+      return res.status(401).json({ error: 'Current PIN is incorrect.' });
+    }
+    const pinErr = validateStrongPin(newPin);
+    if (pinErr) return res.status(400).json({ error: pinErr });
+    nextPinHash = hashPin(String(newPin).trim());
+    pinChanged = true;
+  }
+
+  const updated = await getOne(
+    `UPDATE employees
+     SET name = $1, email = $2, avatar_color = $3, pin = $4, must_change_pin = CASE WHEN $5::boolean THEN FALSE ELSE must_change_pin END
+     WHERE id = $6
+     RETURNING *`,
+    [nextName, nextEmail, nextColor, nextPinHash, pinChanged, req.user.id]
+  );
+
+  await writeAuditLog({
+    actorId: req.user.id,
+    actorName: nextName,
+    action: 'UPDATE_PROFILE',
+    entityType: 'employee',
+    entityId: req.user.id,
+    oldValue: sanitizeEmployee(existing),
+    newValue: { ...sanitizeEmployee(updated), pinChanged },
+  });
+  res.json({ ok: true, employee: sanitizeEmployee(updated) });
+});
+
 app.post('/api/auth/consent', requireAuth, async (req, res) => {
   await query(`UPDATE employees SET tracking_consent_at = NOW() WHERE id = $1`, [req.user.id]);
   await writeAuditLog({ actorId: req.user.id, actorName: req.user.name, action: 'ACCEPT_TRACKING_CONSENT', entityType: 'employee', entityId: req.user.id, newValue: { accepted: true } });

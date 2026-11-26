@@ -43,6 +43,7 @@ interface TopBarProps {
   isSyncing: boolean;
   theme?: 'light' | 'dark';
   onToggleTheme?: () => void;
+  onOpenProfile?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -70,6 +71,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   isSyncing,
   theme = 'light',
   onToggleTheme,
+  onOpenProfile,
 }) => {
   const [clockText, setClockText] = useState(() =>
     new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -408,6 +410,16 @@ export const TopBar: React.FC<TopBarProps> = ({
                     <div className="font-bold text-[var(--zv-text)] truncate">{currentUser.name}</div>
                     <div className="text-[11px] text-[var(--zv-muted)]">{currentUser.emp_code} &bull; {currentUser.role}</div>
                   </div>
+                )}
+                {onOpenProfile && (
+                  <button
+                    type="button"
+                    onClick={() => { onOpenProfile(); setShowUserMenu(false); }}
+                    className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-[var(--zv-text)] hover:bg-[var(--zv-surface-subtle)] font-medium cursor-pointer"
+                  >
+                    <User className="h-3.5 w-3.5 text-[#6D4AFF]" />
+                    My Profile
+                  </button>
                 )}
                 {onToggleTheme && (
                   <button

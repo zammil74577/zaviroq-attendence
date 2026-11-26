@@ -42,6 +42,14 @@ export function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<{ prompt: () => Promise<void> } | null>(null);
   const [showInstallGuide, setShowInstallGuide] = useState(false);
   const [pairingCodeInfo, setPairingCodeInfo] = useState<{ code: string; expiresAt: string } | null>(null);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profileName, setProfileName] = useState('');
+  const [profileEmail, setProfileEmail] = useState('');
+  const [profileColor, setProfileColor] = useState('#6D4AFF');
+  const [profileCurrentPin, setProfileCurrentPin] = useState('');
+  const [profileNewPin, setProfileNewPin] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
   useEffect(() => {
@@ -531,6 +539,17 @@ export function App() {
           isSyncing={isSyncing}
           theme={theme}
           onToggleTheme={toggleTheme}
+          onOpenProfile={() => {
+            if (authUser) {
+              setProfileName(authUser.name);
+              setProfileEmail(authUser.email);
+              setProfileColor(authUser.avatar_color || '#6D4AFF');
+              setProfileCurrentPin('');
+              setProfileNewPin('');
+              setProfileError(null);
+              setShowProfileModal(true);
+            }
+          }}
         />
 
         <main className="flex-1 p-4 sm:p-6 pb-24 max-w-[1600px] w-full mx-auto space-y-5">
@@ -750,6 +769,152 @@ export function App() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {showProfileModal && authUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setProfileSaving(true);
+              setProfileError(null);
+              try {
+                const res = await fetch('/api/profile', {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    name: profileName,
+                    email: profileEmail,
+                    avatar_color: profileColor,
+                    ...(profileNewPin.trim() ? { currentPin: profileCurrentPin, newPin: profileNewPin } : {}),
+                  }),
+                });
+                const j = await res.json();
+                if (!res.ok) {
+                  setProfileError(j.error || 'Failed to update profile');
+                  return;
+                }
+                setAuthUser(j.employee);
+                setShowProfileModal(false);
+                await fetchDashboard(true);
+              } catch {
+                setProfileError('Unable to reach server.');
+              } finally {
+                setProfileSaving(false);
+              }
+            }}
+            className="zv-card zv-enter w-full max-w-md p-6 space-y-4"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div
+                  className="h-11 w-11 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0 zv-text-white-keep"
+                  style={{ backgroundColor: profileColor }}
+                >
+                  {(profileName || authUser.name).split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase()}
+                </div>
+                <div>
+                  <h2 className="text-base font-bold font-heading text-[var(--zv-text)]">My Profile</h2>
+                  <p className="text-[11px] text-[var(--zv-muted)]">
+                    {authUser.emp_code} &bull; {authUser.designation} &bull; {authUser.department}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowProfileModal(false)}
+                className="rounded-lg px-2 py-1 text-xs font-semibold text-[var(--zv-muted)] hover:text-[var(--zv-text)] cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-[var(--zv-text-secondary)] mb-1">Full Name</label>
+              <input
+                required
+                value={profileName}
+                onChange={(e) => setProfileName(e.target.value)}
+                className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-[var(--zv-text-secondary)] mb-1">Work Email</label>
+              <input
+                required
+                type="email"
+                value={profileEmail}
+                onChange={(e) => setProfileEmail(e.target.value)}
+                className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-[var(--zv-text-secondary)] mb-1.5">Avatar Color</label>
+              <div className="flex items-center gap-2 flex-wrap">
+                {['#6D4AFF', '#16A34A', '#2563EB', '#EA580C', '#DB2777', '#0F766E'].map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setProfileColor(c)}
+                    className={`h-7 w-7 rounded-full cursor-pointer transition-transform ${
+                      profileColor.toLowerCase() === c.toLowerCase() ? 'ring-2 ring-offset-2 ring-[#6D4AFF] scale-110' : ''
+                    }`}
+                    style={{ backgroundColor: c }}
+                    aria-label={`Select color ${c}`}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-[var(--zv-border)] space-y-2.5">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--zv-muted)]">
+                Change Password / PIN (Optional)
+              </div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <input
+                  type="password"
+                  placeholder="Current PIN"
+                  value={profileCurrentPin}
+                  onChange={(e) => setProfileCurrentPin(e.target.value)}
+                  className="w-full rounded-xl border px-3 py-2 text-xs font-mono-num focus:outline-none"
+                />
+                <input
+                  type="password"
+                  placeholder="New 6-digit PIN"
+                  maxLength={6}
+                  value={profileNewPin}
+                  onChange={(e) => setProfileNewPin(e.target.value)}
+                  className="w-full rounded-xl border px-3 py-2 text-xs font-mono-num focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {profileError && (
+              <div className="rounded-xl border border-[#FECACA] bg-[#FDECEC] px-3 py-2 text-xs text-[#DC2626] font-medium">
+                {profileError}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowProfileModal(false)}
+                className="rounded-xl border border-[var(--zv-border)] px-4 py-2 text-xs font-semibold text-[var(--zv-text-secondary)] cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={profileSaving}
+                className="rounded-xl zv-btn-primary px-4 py-2 text-xs font-semibold text-white cursor-pointer disabled:opacity-50"
+              >
+                {profileSaving ? 'Saving...' : 'Save Profile'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 

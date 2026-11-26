@@ -379,6 +379,61 @@ app.post('/api/auth/change-pin', requireAuth, (req, res) => {
   res.json({ ok: true, employee: sanitizeEmployee(updated) });
 });
 
+app.patch('/api/profile', requireAuth, (req, res) => {
+  const existing = db.prepare('SELECT * FROM employees WHERE id = ? AND is_active = 1').get(req.user.id);
+  if (!existing) return res.status(404).json({ error: 'Employee not found.' });
+
+  const { name, email, avatar_color, currentPin, newPin } = req.body || {};
+  const nextName = name !== undefined ? String(name).trim() : existing.name;
+  const nextEmail = email !== undefined ? String(email).trim().toLowerCase() : existing.email;
+  const nextColor = avatar_color !== undefined ? String(avatar_color).trim() : existing.avatar_color;
+
+  if (!nextName || nextName.length < 2 || nextName.length > 80) {
+    return res.status(400).json({ error: 'Name must be between 2 and 80 characters.' });
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) {
+    return res.status(400).json({ error: 'Please enter a valid work email address.' });
+  }
+  if (!/^#[0-9a-fA-F]{6}$/.test(nextColor)) {
+    return res.status(400).json({ error: 'Avatar color must be a valid 6-digit hex color.' });
+  }
+
+  const dup = db.prepare('SELECT id FROM employees WHERE LOWER(email) = LOWER(?) AND id != ?').get(nextEmail, req.user.id);
+  if (dup) {
+    return res.status(409).json({ error: 'That email address is already used by another team member.' });
+  }
+
+  let nextPinHash = existing.pin;
+  let pinChanged = false;
+  if (newPin !== undefined && String(newPin).trim() !== '') {
+    if (!currentPin || !verifyPin(String(currentPin), existing.pin)) {
+      return res.status(401).json({ error: 'Current PIN is incorrect.' });
+    }
+    const pinErr = validateStrongPin(newPin);
+    if (pinErr) return res.status(400).json({ error: pinErr });
+    nextPinHash = hashPin(String(newPin).trim());
+    pinChanged = true;
+  }
+
+  db.prepare(`
+    UPDATE employees
+    SET name = ?, email = ?, avatar_color = ?, pin = ?, must_change_pin = CASE WHEN ? = 1 THEN 0 ELSE must_change_pin END
+    WHERE id = ?
+  `).run(nextName, nextEmail, nextColor, nextPinHash, pinChanged ? 1 : 0, req.user.id);
+
+  const updated = db.prepare('SELECT * FROM employees WHERE id = ?').get(req.user.id);
+  writeAuditLog({
+    actorId: req.user.id,
+    actorName: nextName,
+    action: 'UPDATE_PROFILE',
+    entityType: 'employee',
+    entityId: req.user.id,
+    oldValue: sanitizeEmployee(existing),
+    newValue: { ...sanitizeEmployee(updated), pinChanged },
+  });
+  res.json({ ok: true, employee: sanitizeEmployee(updated) });
+});
+
 app.post('/api/auth/consent', requireAuth, (req, res) => {
   const nowIso = new Date().toISOString();
   db.prepare(`UPDATE employees SET tracking_consent_at = ? WHERE id = ?`).run(nowIso, req.user.id);
