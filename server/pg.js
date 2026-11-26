@@ -6,6 +6,7 @@ const { Pool } = pg;
 export const APP_TIMEZONE = process.env.APP_TIMEZONE || 'Asia/Kolkata';
 
 let pool = null;
+let schemaEnsured = false;
 
 export function getPool() {
   if (!pool) {
@@ -17,12 +18,26 @@ export function getPool() {
       connectionString: conn,
       max: 5,
       idleTimeoutMillis: 10000,
+      connectionTimeoutMillis: 5000,
+      statement_timeout: 8000,
+      query_timeout: 8000,
       ssl: conn.includes('localhost') || conn.includes('127.0.0.1')
         ? false
         : { rejectUnauthorized: false },
     });
   }
   return pool;
+}
+
+export async function ensureSchemaOnce() {
+  if (schemaEnsured) return;
+  try {
+    await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS joining_date DATE DEFAULT CURRENT_DATE`);
+    await query(`UPDATE employees SET joining_date = (created_at AT TIME ZONE '${APP_TIMEZONE}')::date WHERE joining_date IS NULL`);
+    schemaEnsured = true;
+  } catch (err) {
+    console.error('[ensureSchemaOnce] non-fatal:', err?.message || err);
+  }
 }
 
 export async function query(sql, params = []) {

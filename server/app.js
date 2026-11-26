@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import {
   APP_TIMEZONE,
+  ensureSchemaOnce,
   query,
   getOne,
   getAll,
@@ -32,6 +33,20 @@ import { uploadChatImage, signChatImageUrl } from './storage.js';
 
 export const app = express();
 
+// Wrap Express 4 route methods so rejected async handlers always forward to Express error middleware (never hang)
+for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
+  const orig = app[method].bind(app);
+  app[method] = (path, ...handlers) =>
+    orig(
+      path,
+      ...handlers.map((fn) =>
+        typeof fn === 'function' && fn.length < 4
+          ? (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next)
+          : fn
+      )
+    );
+}
+
 if (process.env.NODE_ENV === 'production') {
   app.set('trust proxy', 1);
 }
@@ -44,6 +59,18 @@ const corsOrigins = process.env.CORS_ORIGIN
 app.use(cors({ origin: corsOrigins, credentials: true }));
 app.use(cookieParser());
 app.use(express.json({ limit: '8mb' }));
+
+// Per-request timeout guard (returns 503 JSON instead of hanging 60s)
+app.use((_req, res, next) => {
+  const timer = setTimeout(() => {
+    if (!res.headersSent) {
+      res.status(503).json({ error: 'Request timed out. Please retry.' });
+    }
+  }, 9000);
+  res.on('finish', () => clearTimeout(timer));
+  res.on('close', () => clearTimeout(timer));
+  next();
+});
 
 // Postgres-backed rate limits (zero in-memory state)
 const apiLimiter = pgRateLimit('api', Number(process.env.RATE_LIMIT_MAX || 300), 60 * 1000);
@@ -381,6 +408,7 @@ app.post('/api/auth/logout', async (req, res) => {
 app.use('/api', requireAuth);
 
 app.get('/api/dashboard', async (req, res) => {
+  await ensureSchemaOnce();
   const date = req.query.date || getTodayDateInTz();
   const isPrivileged = req.user.role === 'admin' || req.user.role === 'manager';
   const settings = await getSettings();
@@ -769,6 +797,7 @@ app.patch('/api/attendance/:employeeId', requireRole('admin', 'manager'), async 
 // LEAVES & HOLIDAYS
 // ========================
 app.get('/api/leaves', async (req, res) => {
+  await ensureSchemaOnce();
   const isPrivileged = req.user.role === 'admin' || req.user.role === 'manager';
   const leaves = await getAll(
     `SELECT l.*, l.start_date::text as start_date, l.end_date::text as end_date,
@@ -905,6 +934,7 @@ app.delete('/api/holidays/:id', requireRole('admin', 'manager'), async (req, res
 // REPORTS & PAYROLL
 // ========================
 async function buildMonthlyReport(month) {
+  await ensureSchemaOnce();
   const settings = await getSettings();
   const employees = await getAll(
     `SELECT *, joining_date::text as joining_date_str, (created_at AT TIME ZONE '${APP_TIMEZONE}')::date::text as created_date_str FROM employees WHERE is_active = TRUE ORDER BY id ASC`
@@ -1467,6 +1497,13 @@ app.post('/api/chat/messages', async (req, res) => {
     );
   }
   res.status(201).json({ userMsg, botMsg });
+});
+
+app.use((err, req, res, _next) => {
+  console.error(`[API Error] ${req.method} ${req.path}:`, err?.message || err);
+  if (!res.headersSent) {
+    res.status(503).json({ error: err?.message || 'Service temporarily unavailable' });
+  }
 });
 
 export default app;

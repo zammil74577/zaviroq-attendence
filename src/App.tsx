@@ -91,8 +91,10 @@ export function App() {
   const fetchDashboard = useCallback(async (silent = false) => {
     if (!authUser) return;
     if (!silent) setIsSyncing(true);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
     try {
-      const res = await fetch(`/api/dashboard?date=${selectedDate}`);
+      const res = await fetch(`/api/dashboard?date=${selectedDate}`, { signal: controller.signal });
       if (res.status === 401) {
         handleSessionExpired();
         return;
@@ -105,8 +107,13 @@ export function App() {
       }
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setError('Dashboard request timed out after 10s. Please retry.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
+      }
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
       setIsSyncing(false);
     }
@@ -330,6 +337,34 @@ export function App() {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-300 text-sm">
         Initializing Zaviroq Workforce OS...
+      </div>
+    );
+  }
+
+  if (!data && error) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
+        <div className="w-full max-w-md rounded-2xl border border-rose-500/40 bg-slate-900 p-6 text-center space-y-4">
+          <h2 className="text-base font-bold text-white">Unable to Load Dashboard</h2>
+          <p className="text-xs text-rose-200">{error}</p>
+          <div className="flex items-center justify-center gap-3">
+            <button
+              onClick={() => {
+                setLoading(true);
+                fetchDashboard();
+              }}
+              className="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-4 py-2 text-xs font-semibold text-white cursor-pointer"
+            >
+              Retry
+            </button>
+            <button
+              onClick={handleLogout}
+              className="rounded-xl border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white cursor-pointer"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
       </div>
     );
   }

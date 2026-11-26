@@ -10,6 +10,7 @@
     "server": "node server/index.js",
     "test:api": "node server/verify.test.js",
     "test:pg": "node server/verify-pg.test.js",
+    "smoke": "node scripts/smoke-test.js",
     "backup": "node scripts/backup-db.js",
     "seed:reset": "node scripts/seed-reset.js",
     "seed:reset:pg": "node scripts/seed-reset-pg.js",
