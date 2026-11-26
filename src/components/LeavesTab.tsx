@@ -104,6 +104,23 @@ export const LeavesTab: React.FC<LeavesTabProps> = ({
       body: JSON.stringify({ status, comment }),
     });
     if (res.ok) {
+      if (status === 'approved') {
+        const target = leaves.find((l) => l.id === id);
+        window.dispatchEvent(
+          new CustomEvent('zaviroq:celebrate', {
+            detail: {
+              id: `leave-approved-${id}-${Date.now()}`,
+              kind: 'leave_granted',
+              title: `Leave Granted${target?.employee_name ? ` for ${target.employee_name}` : ''}! 🌴`,
+              message: target
+                ? `${target.leave_type} leave (${target.start_date} to ${target.end_date}) has been approved. Enjoy the time off!`
+                : 'Leave request approved — enjoy your time off!',
+              sender: currentUser?.name || 'Admin',
+              dropItems: true,
+            },
+          })
+        );
+      }
       await loadLeaves();
       await onRefreshDashboard();
     }

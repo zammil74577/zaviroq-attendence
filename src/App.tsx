@@ -17,6 +17,12 @@ import { DirectoryTab } from './components/DirectoryTab';
 import { AuditLogsTab } from './components/AuditLogsTab';
 import { SettingsTab } from './components/SettingsTab';
 import { MascotChatbot } from './components/MascotChatbot';
+import {
+  CelebrationOverlay,
+  parseCelebrationAnnouncement,
+  type CelebrationKind,
+  type CelebrationPayload,
+} from './components/CelebrationOverlay';
 
 export function App() {
   const [authUser, setAuthUser] = useState<Employee | null>(null);
@@ -50,7 +56,69 @@ export function App() {
   const [profileNewPin, setProfileNewPin] = useState('');
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [celebration, setCelebration] = useState<CelebrationPayload | null>(null);
+  const [showCelebrateModal, setShowCelebrateModal] = useState(false);
+  const [celebrateKind, setCelebrateKind] = useState<CelebrationKind>('gift');
+  const [celebrateTitle, setCelebrateTitle] = useState('');
+  const [celebrateMessage, setCelebrateMessage] = useState('');
+  const [celebrateSending, setCelebrateSending] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
+
+  useEffect(() => {
+    const onCelebrate = (e: Event) => {
+      const detail = (e as CustomEvent<CelebrationPayload>).detail;
+      if (detail) setCelebration(detail);
+    };
+    window.addEventListener('zaviroq:celebrate', onCelebrate);
+    return () => window.removeEventListener('zaviroq:celebrate', onCelebrate);
+  }, []);
+
+  // Show popup + falling gifts/wishes when a new Admin broadcast/gift/birthday/festival arrives
+  useEffect(() => {
+    if (!authUser || !data?.announcements?.length) return;
+    const latest = data.announcements[0];
+    const seenKey = `zaviroq_seen_ann_${authUser.id}`;
+    try {
+      const lastSeen = localStorage.getItem(seenKey);
+      if (lastSeen !== String(latest.id)) {
+        localStorage.setItem(seenKey, String(latest.id));
+        setCelebration(parseCelebrationAnnouncement(latest));
+      }
+    } catch {
+      // ignore
+    }
+  }, [authUser, data?.announcements]);
+
+  // Auto-wish on configured Holiday / Festival dates
+  useEffect(() => {
+    if (!authUser) return;
+    const today = getTodayISO();
+    const seenFestKey = `zaviroq_seen_fest_${today}_${authUser.id}`;
+    try {
+      if (localStorage.getItem(seenFestKey) === '1') return;
+    } catch {
+      // ignore
+    }
+    fetch('/api/holidays')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list: Array<{ date: string; name: string }>) => {
+        const match = Array.isArray(list) ? list.find((h) => h.date === today) : null;
+        if (match) {
+          try {
+            localStorage.setItem(seenFestKey, '1');
+          } catch { /* ignore */ }
+          setCelebration({
+            id: `festival-${today}`,
+            kind: 'festival',
+            title: `Happy ${match.name}! 🪔`,
+            message: `Wishing ${authUser.name.split(' ')[0]} and the entire Zaviroq team a joyful ${match.name}!`,
+            sender: 'Zaviroq Team',
+            dropItems: true,
+          });
+        }
+      })
+      .catch(() => {});
+  }, [authUser]);
 
   useEffect(() => {
     const key = `zaviroq_theme_${authUser?.id || 'default'}`;
@@ -635,6 +703,12 @@ export function App() {
               currentUser={currentUser}
               onNavigateTab={setActiveTab}
               onQuickTaskStatus={(id, status) => handleUpdateTask(id, { status })}
+              onOpenCelebrate={viewMode === 'admin' ? () => {
+                setCelebrateKind('gift');
+                setCelebrateTitle('');
+                setCelebrateMessage('');
+                setShowCelebrateModal(true);
+              } : undefined}
             />
           )}
 
@@ -747,6 +821,121 @@ export function App() {
           liveState={liveState}
           todayDate={data.summary.date}
         />
+      )}
+
+      <CelebrationOverlay
+        celebration={celebration}
+        onDismiss={() => setCelebration(null)}
+      />
+
+      {showCelebrateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!celebrateTitle.trim() || !celebrateMessage.trim()) return;
+              setCelebrateSending(true);
+              try {
+                const tagMap: Record<CelebrationKind, string> = {
+                  gift: '[GIFT]',
+                  appreciation: '[APPRECIATION]',
+                  birthday: '[BIRTHDAY]',
+                  festival: '[FESTIVAL]',
+                  leave_granted: '[LEAVE_GRANTED]',
+                  announcement: '',
+                };
+                const prefix = tagMap[celebrateKind];
+                const fullTitle = prefix ? `${prefix} ${celebrateTitle.trim()}` : celebrateTitle.trim();
+                await handlePostAnnouncement({
+                  title: fullTitle,
+                  message: celebrateMessage.trim(),
+                  priority: 'important',
+                });
+                setShowCelebrateModal(false);
+              } finally {
+                setCelebrateSending(false);
+              }
+            }}
+            className="zv-card zv-enter w-full max-w-md p-6 space-y-4"
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold font-heading text-[var(--zv-text)]">
+                Send Team Wish, Gift or Broadcast
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowCelebrateModal(false)}
+                className="text-xs font-semibold text-[var(--zv-muted)] hover:text-[var(--zv-text)] cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-[var(--zv-text-secondary)] mb-1.5">Celebration Type</label>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {(
+                  [
+                    ['gift', '🎁 Gift Drop'],
+                    ['appreciation', '🏆 Appreciation'],
+                    ['birthday', '🎂 Birthday Wish'],
+                    ['festival', '🪔 Festival Wish'],
+                    ['announcement', '📢 Broadcast'],
+                  ] as const
+                ).map(([k, label]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setCelebrateKind(k)}
+                    className={`rounded-xl border px-3 py-2 text-left font-semibold cursor-pointer transition-all ${
+                      celebrateKind === k
+                        ? 'zv-btn-primary border-transparent text-white zv-text-white-keep'
+                        : 'border-[var(--zv-border)] bg-[var(--zv-surface-subtle)] text-[var(--zv-text)]'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-[var(--zv-text-secondary)] mb-1">Title</label>
+              <input
+                required
+                value={celebrateTitle}
+                onChange={(e) => setCelebrateTitle(e.target.value)}
+                placeholder="e.g. Happy Birthday Priya! or Q4 Bonus Gift!"
+                className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-[var(--zv-text-secondary)] mb-1">Message</label>
+              <textarea
+                required
+                rows={3}
+                value={celebrateMessage}
+                onChange={(e) => setCelebrateMessage(e.target.value)}
+                placeholder="Write a warm message for the team..."
+                className="w-full rounded-xl border px-3 py-2 text-sm focus:outline-none"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowCelebrateModal(false)}
+                className="rounded-xl border border-[var(--zv-border)] px-4 py-2 text-xs font-semibold text-[var(--zv-text-secondary)] cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={celebrateSending}
+                className="rounded-xl zv-btn-primary px-4 py-2 text-xs font-semibold text-white cursor-pointer disabled:opacity-50"
+              >
+                {celebrateSending ? 'Sending...' : 'Send & Celebrate ✨'}
+              </button>
+            </div>
+          </form>
+        </div>
       )}
 
       {pairingCodeInfo && (

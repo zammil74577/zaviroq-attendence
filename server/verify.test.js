@@ -848,6 +848,7 @@ test('Desktop Agent: pairing, scoped device token, revocation, desktop priority,
   assert.equal(dashDenied.status, 401, 'Device token must be rejected on non-device endpoints');
 
   // 4. Clock in via desktop agent sets tracking_mode = desktop
+  db.prepare(`UPDATE employees SET shift_end = '23:59' WHERE emp_code = 'ZAV-902'`).run();
   db.prepare(`DELETE FROM attendance WHERE employee_id = (SELECT id FROM employees WHERE emp_code = 'ZAV-902')`).run();
   const clockInRes = await fetch(`${baseUrl}/api/attendance/clock-in`, {
     method: 'POST',

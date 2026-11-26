@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Users,
   Activity,
@@ -15,6 +15,7 @@ import {
   ClipboardList,
   BarChart3,
   Monitor,
+  Gift,
 } from 'lucide-react';
 import type { DashboardData, Employee, TabId, ViewMode } from '../types';
 import { calcProductivity, formatClockTime, formatHM, formatRelativeTime, getInitials } from '../utils/format';
@@ -26,6 +27,7 @@ interface OverviewTabProps {
   currentUser: Employee | null;
   onNavigateTab: (tab: TabId) => void;
   onQuickTaskStatus: (taskId: number, status: 'in_progress' | 'completed') => void;
+  onOpenCelebrate?: () => void;
 }
 
 function getIstGreeting(): string {
@@ -50,6 +52,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   currentUser,
   onNavigateTab,
   onQuickTaskStatus,
+  onOpenCelebrate,
 }) => {
   const { summary, employees, tasks, logs, announcements } = data;
   const isEmployeeMode = viewMode === 'employee' && currentUser;
@@ -72,10 +75,29 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
   const schedule = data.officeSchedule;
 
+  const dynamicSubtitles = isEmployeeMode
+    ? [
+        'Track your shift focus, breaks, and tasks — all in one place.',
+        `You have ${pendingOrOverdue.length} open task(s) and ${completedCount} completed today.`,
+        'Stay steady, take timely breaks, and celebrate your wins!',
+      ]
+    : [
+        'Track attendance, productivity, and team activity — all in one place.',
+        `Live desk telemetry: ${summary.activeNowCount} active teammate(s) online right now.`,
+        `Celebrating milestones, team appreciation, and daily wins together.`,
+      ];
+  const [subtitleIdx, setSubtitleIdx] = useState(0);
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      setSubtitleIdx((i) => (i + 1) % dynamicSubtitles.length);
+    }, 4500);
+    return () => window.clearInterval(t);
+  }, [dynamicSubtitles.length]);
+
   return (
     <div className="space-y-5">
       {/* Hero Banner */}
-      <section className="relative overflow-hidden rounded-[24px] border border-[var(--zv-border)] bg-gradient-to-r from-[#EFEAFF] via-[#F7F5FF] to-[var(--zv-surface)] shadow-[var(--zv-shadow)] min-h-[140px] flex items-center">
+      <section className="relative overflow-hidden rounded-[24px] border border-white/90 bg-gradient-to-r from-[#EFEAFF] via-[#F7F5FF] to-white/90 shadow-[var(--zv-shadow)] min-h-[146px] flex items-center">
         <div className="relative z-10 px-6 sm:px-8 py-6 max-w-2xl">
           <div className="text-sm font-semibold text-[#4B4668] flex items-center gap-1.5">
             <span>👋</span>
@@ -84,9 +106,24 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           <h1 className="mt-1 text-2xl sm:text-[34px] sm:leading-[1.15] font-extrabold font-heading tracking-tight text-[#1A1635]">
             {isEmployeeMode ? 'Your Day at a Glance' : 'Your Workforce at a Glance'}
           </h1>
-          <p className="mt-1.5 text-xs sm:text-sm text-[#6B6785]">
-            Track attendance, productivity, and team activity — all in one place.
+          <p
+            key={subtitleIdx}
+            className="zv-dynamic-text mt-1.5 text-xs sm:text-sm text-[#6B6785] min-h-[20px]"
+          >
+            {dynamicSubtitles[subtitleIdx % dynamicSubtitles.length]}
           </p>
+          {viewMode === 'admin' && onOpenCelebrate && (
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={onOpenCelebrate}
+                className="inline-flex items-center gap-1.5 rounded-full border border-[#DDD6FE] bg-white/85 hover:bg-white px-3.5 py-1.5 text-xs font-semibold text-[#6D4AFF] shadow-xs cursor-pointer transition-all"
+              >
+                <Gift className="h-3.5 w-3.5 text-[#DB2777]" />
+                Send Wish, Gift or Appreciation
+              </button>
+            </div>
+          )}
         </div>
         <div className="hidden md:block absolute inset-y-0 right-0 w-[52%] pointer-events-none">
           <img
