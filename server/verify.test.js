@@ -976,4 +976,14 @@ test('Idle log: single idle_start/idle_end per real state change with source inf
   assert.equal(relRes.status, 200);
   const relJson = await relRes.json();
   assert.equal(typeof relJson.available, 'boolean');
+
+  // /api/cron/status: 403 for employee, 200 for admin
+  const { createSessionToken, SESSION_COOKIE_NAME } = await import('./auth.js');
+  const freshAdminCookie = `${SESSION_COOKIE_NAME}=${createSessionToken(1)}`;
+  const cronEmp = await fetch(`${baseUrl}/api/cron/status`, { headers: { Cookie: cookie } });
+  assert.equal(cronEmp.status, 403);
+  const cronAdmin = await fetch(`${baseUrl}/api/cron/status`, { headers: { Cookie: freshAdminCookie } });
+  assert.equal(cronAdmin.status, 200);
+  const cronBody = await cronAdmin.json();
+  assert.ok('lastRunAt' in cronBody && 'rulesEvaluated' in cronBody);
 });

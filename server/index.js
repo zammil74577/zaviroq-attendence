@@ -705,7 +705,7 @@ app.post('/api/employees/:id/reset-pin', requireRole('admin', 'manager'), (req, 
 app.post('/api/attendance/clock-in', (req, res) => {
   const isPrivileged = req.user.role === 'admin' || req.user.role === 'manager';
   const targetId = isPrivileged && req.body.employeeId ? Number(req.body.employeeId) : req.user.id;
-  const { notes = '', trackingMode = 'tab_only', source } = req.body;
+  const { notes = '', trackingMode = 'tab_only', source, sessionId = '' } = req.body;
   const safeTrackingMode =
     req.deviceAuth || source === 'desktop_agent' || trackingMode === 'desktop'
       ? 'desktop'
@@ -767,9 +767,10 @@ app.post('/api/attendance/clock-in', (req, res) => {
 
   db.prepare(`
     UPDATE employees
-    SET status = 'active', last_seen_at = ?, last_heartbeat_at = ?, last_heartbeat_state = 'active'
+    SET status = 'active', last_seen_at = ?, last_heartbeat_at = ?, last_heartbeat_state = 'active',
+        active_session_id = COALESCE(NULLIF(?, ''), active_session_id)
     WHERE id = ?
-  `).run(nowIso, nowIso, targetId);
+  `).run(nowIso, nowIso, String(sessionId || ''), targetId);
   db.prepare(`
     INSERT INTO activity_logs (employee_id, date, type, reason, timestamp)
     VALUES (?, ?, 'clock_in', ?, ?)
@@ -1872,7 +1873,7 @@ const sqliteAlertAdapter = {
   getEmployeesWithAttendance: (date) =>
     db.prepare(
       `SELECT e.id, e.emp_code, e.name, e.email, e.department, e.role, e.shift_start, e.shift_end, e.status, e.last_heartbeat_at,
-        a.clock_in, a.clock_out, COALESCE(a.status, 'absent') as att_status, COALESCE(a.idle_seconds, 0) as idle_seconds, COALESCE(a.break_seconds, 0) as break_seconds
+        a.id as attendance_id, a.clock_in, a.clock_out, COALESCE(a.status, 'absent') as att_status, COALESCE(a.idle_seconds, 0) as idle_seconds, COALESCE(a.break_seconds, 0) as break_seconds
        FROM employees e LEFT JOIN attendance a ON a.employee_id = e.id AND a.date = ? WHERE e.is_active = 1`
     ).all(date),
   getApprovedLeaveEmployeeIds: (date) =>
@@ -1896,6 +1897,24 @@ const sqliteAlertAdapter = {
 export function evaluateAlertRulesForTest(now = new Date(), timeZone = 'Asia/Kolkata') {
   return evaluateAlertRules(sqliteAlertAdapter, { now, timeZone });
 }
+
+app.get('/api/cron/status', requireRole('admin'), (_req, res) => {
+  const row = db.prepare(`SELECT value FROM app_settings WHERE key = 'cron_alerts_status'`).get();
+  let parsed = null;
+  try {
+    parsed = row?.value ? JSON.parse(row.value) : null;
+  } catch { /* ignore */ }
+  res.json(
+    parsed || {
+      lastRunAt: null,
+      durationMs: 0,
+      rulesEvaluated: 0,
+      alertsCreated: 0,
+      lastError: null,
+      source: null,
+    }
+  );
+});
 
 app.get('/api/alert-rules', requireRole('admin', 'manager'), (_req, res) => {
   res.json(db.prepare(`SELECT * FROM alert_rules ORDER BY id ASC`).all());

@@ -29,13 +29,20 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ onSaved }) => {
   const [pushBusy, setPushBusy] = useState<boolean>(false);
   const [vapidPublicKey, setVapidPublicKey] = useState<string>('');
   const [releaseInfo, setReleaseInfo] = useState<{ available: boolean; version?: string; url?: string } | null>(null);
+  const [cronStatus, setCronStatus] = useState<{
+    lastRunAt: string | null;
+    durationMs: number;
+    rulesEvaluated: number;
+    alertsCreated: number;
+    lastError: string | null;
+  } | null>(null);
   const [newHolidayDate, setNewHolidayDate] = useState('');
   const [newHolidayName, setNewHolidayName] = useState('');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   const loadAll = async () => {
-    const [sRes, hRes, aRes, dRes, dashRes, vapidRes, relRes] = await Promise.all([
+    const [sRes, hRes, aRes, dRes, dashRes, vapidRes, relRes, cronRes] = await Promise.all([
       fetch('/api/settings'),
       fetch('/api/holidays'),
       fetch('/api/alert-rules'),
@@ -43,10 +50,12 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ onSaved }) => {
       fetch('/api/dashboard'),
       fetch('/api/push/vapid-key'),
       fetch('/api/desktop-agent/release'),
+      fetch('/api/cron/status'),
     ]);
     if (sRes.ok) setSettings(await sRes.json());
     if (hRes.ok) setHolidays(await hRes.json());
     if (dRes.ok) setDevices(await dRes.json());
+    if (cronRes.ok) setCronStatus(await cronRes.json());
     if (vapidRes.ok) {
       const vj = await vapidRes.json();
       setVapidPublicKey(String(vj.publicKey || ''));
@@ -245,6 +254,28 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ onSaved }) => {
 
       {activeSubTab === 'alerts' ? (
         <div className="space-y-4">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2 text-slate-300">
+              <span className="font-semibold text-white">Alert Evaluator:</span>
+              {cronStatus?.lastRunAt ? (() => {
+                const minsAgo = Math.max(0, Math.round((Date.now() - new Date(cronStatus.lastRunAt).getTime()) / 60000));
+                const agoLabel = minsAgo === 0 ? 'just now' : `${minsAgo} min ago`;
+                return cronStatus.lastError ? (
+                  <span className="text-rose-300">Last check: {agoLabel} (error: {cronStatus.lastError})</span>
+                ) : (
+                  <span className="text-emerald-300">Last check: {agoLabel} ✓</span>
+                );
+              })() : (
+                <span className="text-amber-300">Last check: never</span>
+              )}
+            </div>
+            {cronStatus?.lastRunAt && (
+              <span className="text-slate-400 font-mono-num">
+                {cronStatus.rulesEvaluated} rules &bull; {cronStatus.alertsCreated} alert(s) &bull; {cronStatus.durationMs}ms
+              </span>
+            )}
+          </div>
+
           <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold text-white">Browser &amp; Mobile Push Notifications</h2>

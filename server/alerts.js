@@ -190,15 +190,18 @@ export async function evaluateAlertRules(adapter, { now = new Date(), timeZone =
     const shiftStartMins = sh * 60 + sm;
     const shiftEndMins = eh * 60 + em;
 
-    // 1. tracker_offline: clocked in AND no heartbeat > threshold_minutes (5m)
+    // 1. tracker_offline: clocked in AND (now - last_heartbeat_at) > threshold AND within shift
     const offlineRule = rules.get('tracker_offline');
     const offlineMs = (offlineRule?.threshold_minutes ?? 5) * 60 * 1000;
     const lastHbMs = emp.last_heartbeat_at ? new Date(emp.last_heartbeat_at).getTime() : 0;
-    const isTrackerOffline = isClockedIn && lastHbMs > 0 && now.getTime() - lastHbMs > offlineMs;
+    const isWithinShift = shiftStartMins <= shiftEndMins
+      ? nowMins >= shiftStartMins && nowMins <= shiftEndMins
+      : nowMins >= shiftStartMins || nowMins <= shiftEndMins;
+    const isTrackerOffline = isClockedIn && isWithinShift && lastHbMs > 0 && now.getTime() - lastHbMs > offlineMs;
     await handleCondition({
       ruleType: 'tracker_offline',
       employeeId: emp.id,
-      episodeKey: `tracker_offline:${emp.id}:${today}`,
+      episodeKey: `tracker_offline:${emp.id}:${emp.attendance_id || today}`,
       isActive: isTrackerOffline,
       title: `Tracker Offline: ${emp.name}`,
       message: `${emp.name} (${emp.emp_code}) has had no heartbeat for > ${offlineRule?.threshold_minutes ?? 5}m.`,

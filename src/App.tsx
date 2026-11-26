@@ -207,10 +207,13 @@ export function App() {
     setClockActionPending(true);
     try {
       const mode = await requestSystemIdleDetection();
+      const tabSessionId = (() => {
+        try { return sessionStorage.getItem('zaviroq_tab_session_id') || undefined; } catch { return undefined; }
+      })();
       const res = await fetch('/api/attendance/clock-in', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employeeId: currentUser.id, trackingMode: mode }),
+        body: JSON.stringify({ employeeId: currentUser.id, trackingMode: mode, sessionId: tabSessionId }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));

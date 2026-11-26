@@ -198,6 +198,81 @@ async function recalculateAttendanceLateStatuses(actor = { id: null, name: 'Syst
   return details.length;
 }
 
+const pgAlertAdapter = {
+  getSettings,
+  getRules: () => getAll(`SELECT * FROM alert_rules ORDER BY id ASC`),
+  isHoliday: async (date) => Boolean(await getOne(`SELECT 1 FROM holidays WHERE date = $1::date`, [date])),
+  getEmployeesWithAttendance: (date) =>
+    getAll(
+      `SELECT e.id, e.emp_code, e.name, e.email, e.department, e.role, e.shift_start, e.shift_end, e.status, e.last_heartbeat_at,
+        a.id as attendance_id, a.clock_in, a.clock_out, COALESCE(a.status, 'absent') as att_status, COALESCE(a.idle_seconds, 0) as idle_seconds, COALESCE(a.break_seconds, 0) as break_seconds
+       FROM employees e LEFT JOIN attendance a ON a.employee_id = e.id AND a.date = $1::date WHERE e.is_active = TRUE`,
+      [date]
+    ),
+  getApprovedLeaveEmployeeIds: async (date) => {
+    const rows = await getAll(`SELECT employee_id FROM leaves WHERE status = 'approved' AND start_date <= $1::date AND end_date >= $1::date`, [date]);
+    return rows.map((r) => r.employee_id);
+  },
+  getPrivilegedRecipients: () => getAll(`SELECT id, name, email, role, department FROM employees WHERE is_active = TRUE AND role IN ('admin', 'manager')`),
+  getActiveEpisode: (ruleType, episodeKey) => getOne(`SELECT id FROM alert_episodes WHERE rule_type = $1 AND episode_key = $2 AND active = TRUE LIMIT 1`, [ruleType, episodeKey]),
+  openEpisode: ({ employeeId, ruleType, episodeKey, nowIso }) =>
+    query(`INSERT INTO alert_episodes (employee_id, rule_type, episode_key, active, triggered_at) VALUES ($1, $2, $3, TRUE, $4::timestamptz)`, [employeeId, ruleType, episodeKey, nowIso]),
+  resolveEpisode: (id, nowIso) => query(`UPDATE alert_episodes SET active = FALSE, resolved_at = $1::timestamptz WHERE id = $2`, [nowIso, id]),
+  insertNotification: ({ employeeId, type, title, message, link, nowIso }) =>
+    query(`INSERT INTO notifications (employee_id, type, title, message, link, created_at) VALUES ($1, $2, $3, $4, $5, $6::timestamptz)`, [employeeId, type, title, message, link, nowIso]),
+  getPushSubscriptions: (empIds) => getAll(`SELECT * FROM push_subscriptions WHERE employee_id = ANY($1::int[])`, [empIds]),
+  deletePushSubscription: (endpoint) => query(`DELETE FROM push_subscriptions WHERE endpoint = $1`, [endpoint]),
+  writeAudit: ({ action, entityType, entityId, newValue }) => writeAuditLog({ actorId: null, actorName: 'System', action, entityType, entityId, newValue }),
+};
+
+let lastAlertRunMs = 0;
+
+export async function runAlertEvaluationJob(source = 'cron') {
+  const startedAt = Date.now();
+  const now = new Date();
+  let statusObj = {
+    lastRunAt: now.toISOString(),
+    durationMs: 0,
+    rulesEvaluated: 0,
+    alertsCreated: 0,
+    lastError: null,
+    source,
+  };
+  try {
+    const rules = await pgAlertAdapter.getRules();
+    const triggered = await evaluateAlertRules(pgAlertAdapter, { now, timeZone: APP_TIMEZONE });
+    statusObj = {
+      lastRunAt: now.toISOString(),
+      durationMs: Date.now() - startedAt,
+      rulesEvaluated: rules.length,
+      alertsCreated: triggered.length,
+      lastError: null,
+      source,
+    };
+    lastAlertRunMs = Date.now();
+  } catch (err) {
+    statusObj = {
+      lastRunAt: now.toISOString(),
+      durationMs: Date.now() - startedAt,
+      rulesEvaluated: 0,
+      alertsCreated: 0,
+      lastError: err?.message || 'Alert evaluation failed',
+      source,
+    };
+    console.error('[evaluateAlertRules]', err);
+  }
+  try {
+    await query(
+      `INSERT INTO settings (key, value) VALUES ('cron_alerts_status', $1)
+       ON CONFLICT (key) DO UPDATE SET value = $1`,
+      [JSON.stringify(statusObj)]
+    );
+  } catch (err) {
+    console.error('[cron_alerts_status save]', err?.message || err);
+  }
+  return statusObj;
+}
+
 export async function runAutoClockOutJob() {
   const settings = await getSettings();
   const today = getTodayDateInTz();
@@ -249,38 +324,7 @@ export async function runAutoClockOutJob() {
     }
   }
 
-  const pgAlertAdapter = {
-    getSettings,
-    getRules: () => getAll(`SELECT * FROM alert_rules ORDER BY id ASC`),
-    isHoliday: async (date) => Boolean(await getOne(`SELECT 1 FROM holidays WHERE date = $1::date`, [date])),
-    getEmployeesWithAttendance: (date) =>
-      getAll(
-        `SELECT e.id, e.emp_code, e.name, e.email, e.department, e.role, e.shift_start, e.shift_end, e.status, e.last_heartbeat_at,
-          a.clock_in, a.clock_out, COALESCE(a.status, 'absent') as att_status, COALESCE(a.idle_seconds, 0) as idle_seconds, COALESCE(a.break_seconds, 0) as break_seconds
-         FROM employees e LEFT JOIN attendance a ON a.employee_id = e.id AND a.date = $1::date WHERE e.is_active = TRUE`,
-        [date]
-      ),
-    getApprovedLeaveEmployeeIds: async (date) => {
-      const rows = await getAll(`SELECT employee_id FROM leaves WHERE status = 'approved' AND start_date <= $1::date AND end_date >= $1::date`, [date]);
-      return rows.map((r) => r.employee_id);
-    },
-    getPrivilegedRecipients: () => getAll(`SELECT id, name, email, role, department FROM employees WHERE is_active = TRUE AND role IN ('admin', 'manager')`),
-    getActiveEpisode: (ruleType, episodeKey) => getOne(`SELECT id FROM alert_episodes WHERE rule_type = $1 AND episode_key = $2 AND active = TRUE LIMIT 1`, [ruleType, episodeKey]),
-    openEpisode: ({ employeeId, ruleType, episodeKey, nowIso }) =>
-      query(`INSERT INTO alert_episodes (employee_id, rule_type, episode_key, active, triggered_at) VALUES ($1, $2, $3, TRUE, $4::timestamptz)`, [employeeId, ruleType, episodeKey, nowIso]),
-    resolveEpisode: (id, nowIso) => query(`UPDATE alert_episodes SET active = FALSE, resolved_at = $1::timestamptz WHERE id = $2`, [nowIso, id]),
-    insertNotification: ({ employeeId, type, title, message, link, nowIso }) =>
-      query(`INSERT INTO notifications (employee_id, type, title, message, link, created_at) VALUES ($1, $2, $3, $4, $5, $6::timestamptz)`, [employeeId, type, title, message, link, nowIso]),
-    getPushSubscriptions: (empIds) => getAll(`SELECT * FROM push_subscriptions WHERE employee_id = ANY($1::int[])`, [empIds]),
-    deletePushSubscription: (endpoint) => query(`DELETE FROM push_subscriptions WHERE endpoint = $1`, [endpoint]),
-    writeAudit: ({ action, entityType, entityId, newValue }) => writeAuditLog({ actorId: null, actorName: 'System', action, entityType, entityId, newValue }),
-  };
-
-  try {
-    await evaluateAlertRules(pgAlertAdapter, { now, timeZone: APP_TIMEZONE });
-  } catch (err) {
-    console.error('[evaluateAlertRules]', err?.message || err);
-  }
+  await runAlertEvaluationJob('auto_clockout');
 }
 
 // ========================
@@ -330,6 +374,11 @@ function verifyCronSecret(req, res, next) {
 app.get('/api/cron/auto-clockout', verifyCronSecret, async (_req, res) => {
   await runAutoClockOutJob();
   res.json({ ok: true, ranAt: new Date().toISOString() });
+});
+
+app.all('/api/cron/alerts', verifyCronSecret, async (_req, res) => {
+  const status = await runAlertEvaluationJob('pg_cron');
+  res.json({ ok: !status.lastError, ...status });
 });
 
 app.get('/api/cron/daily', verifyCronSecret, async (_req, res) => {
@@ -537,6 +586,21 @@ app.get('/api/dashboard', async (req, res) => {
   const isPrivileged = req.user.role === 'admin' || req.user.role === 'manager';
   const includeInactive = isPrivileged && req.query.includeInactive === 'true';
 
+  // Fallback alert check when an admin loads /api/dashboard (rate-limited to once per 2 min)
+  if (req.user.role === 'admin' && Date.now() - lastAlertRunMs > 120_000) {
+    const statusRow = await getOne(`SELECT value FROM settings WHERE key = 'cron_alerts_status'`);
+    let lastDbMs = 0;
+    try {
+      const parsed = statusRow?.value ? JSON.parse(statusRow.value) : null;
+      lastDbMs = parsed?.lastRunAt ? new Date(parsed.lastRunAt).getTime() : 0;
+    } catch { /* ignore */ }
+    if (Date.now() - lastDbMs > 120_000) {
+      await runAlertEvaluationJob('dashboard_fallback');
+    } else {
+      lastAlertRunMs = lastDbMs;
+    }
+  }
+
   const [settings, rawEmployees, rawTasks, logs, announcements] = await Promise.all([
     getSettings(),
     getAll(
@@ -739,7 +803,7 @@ app.post('/api/employees/:id/reset-pin', requireRole('admin', 'manager'), async 
 app.post('/api/attendance/clock-in', async (req, res) => {
   const isPrivileged = req.user.role === 'admin' || req.user.role === 'manager';
   const targetId = isPrivileged && req.body.employeeId ? Number(req.body.employeeId) : req.user.id;
-  const { notes = '', trackingMode = 'tab_only', source } = req.body;
+  const { notes = '', trackingMode = 'tab_only', source, sessionId = '' } = req.body;
   const safeTrackingMode =
     req.deviceAuth || source === 'desktop_agent' || trackingMode === 'desktop'
       ? 'desktop'
@@ -795,7 +859,10 @@ app.post('/api/attendance/clock-in', async (req, res) => {
     );
   }
 
-  await query(`UPDATE employees SET status = 'active', last_seen_at = NOW(), last_heartbeat_at = NOW(), last_heartbeat_state = 'active' WHERE id = $1`, [targetId]);
+  await query(
+    `UPDATE employees SET status = 'active', last_seen_at = NOW(), last_heartbeat_at = NOW(), last_heartbeat_state = 'active', active_session_id = COALESCE(NULLIF($2, ''), active_session_id) WHERE id = $1`,
+    [targetId, String(sessionId || '')]
+  );
   await query(`INSERT INTO activity_logs (employee_id, date, type, reason, timestamp) VALUES ($1, $2::date, 'clock_in', $3, NOW())`, [targetId, today, clockReason]);
 
   res.json({ ok: true, status: 'active', clock_in: nowObj.toISOString() });
@@ -1548,6 +1615,24 @@ app.get('/api/notifications', async (req, res) => {
   }
 
   res.json(notifications);
+});
+
+app.get('/api/cron/status', requireRole('admin'), async (_req, res) => {
+  const row = await getOne(`SELECT value FROM settings WHERE key = 'cron_alerts_status'`);
+  let parsed = null;
+  try {
+    parsed = row?.value ? JSON.parse(row.value) : null;
+  } catch { /* ignore */ }
+  res.json(
+    parsed || {
+      lastRunAt: null,
+      durationMs: 0,
+      rulesEvaluated: 0,
+      alertsCreated: 0,
+      lastError: null,
+      source: null,
+    }
+  );
 });
 
 app.get('/api/alert-rules', requireRole('admin', 'manager'), async (_req, res) => {
