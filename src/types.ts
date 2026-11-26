@@ -154,7 +154,7 @@ export interface Employee {
   break_seconds: number;
   overtime_seconds: number;
   missed_clock_out?: number;
-  tracking_mode?: 'app_system' | 'system' | 'tab_only';
+  tracking_mode?: 'desktop' | 'app_system' | 'system' | 'tab_only';
   break_over_limit?: boolean;
   attendance_notes: string;
 }
@@ -274,6 +274,20 @@ export interface AlertRule {
   channels: string[] | string;
   quiet_hours: { start: string; end: string } | string;
   recipients: string;
+}
+
+export interface DeviceTokenInfo {
+  id: number;
+  employee_id: number;
+  device_name: string;
+  platform: string;
+  app_version: string;
+  created_at: string;
+  last_seen_at: string | null;
+  revoked_at: string | null;
+  emp_code?: string;
+  employee_name?: string;
+  department?: string;
 }
 
 export interface Holiday {

@@ -193,18 +193,18 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({
                       {viewMode === 'admin' && emp.clock_in && !emp.clock_out && (
                         <span
                           className={`rounded-md border px-1.5 py-0.5 text-[10px] font-semibold whitespace-nowrap ${
-                            emp.tracking_mode === 'app_system'
+                            emp.tracking_mode === 'desktop'
                               ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
-                              : emp.tracking_mode === 'system'
+                              : emp.tracking_mode === 'app_system'
                               ? 'border-cyan-500/40 bg-cyan-500/15 text-cyan-300'
                               : 'border-amber-500/40 bg-amber-500/15 text-amber-300'
                           }`}
                         >
-                          {emp.tracking_mode === 'app_system'
-                            ? 'App (system)'
-                            : emp.tracking_mode === 'system'
-                            ? 'Tab (system)'
-                            : 'Tab only'}
+                          {emp.tracking_mode === 'desktop'
+                            ? 'Desktop app'
+                            : emp.tracking_mode === 'app_system'
+                            ? 'Browser app'
+                            : 'Tab'}
                         </span>
                       )}
                     </div>

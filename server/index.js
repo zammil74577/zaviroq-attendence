@@ -26,6 +26,8 @@ import {
   setSessionCookie,
   clearSessionCookie,
   revokeSessionToken,
+  verifySessionToken,
+  hashDeviceToken,
 } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -398,6 +400,61 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ ok: true });
 });
 
+app.post('/api/devices/pair', loginLimiter, (req, res) => {
+  const { code, identifier, pin, deviceName = 'Zaviroq Desktop', platform = 'windows', appVersion = '1.0.0' } = req.body || {};
+
+  if (!code && !identifier && !pin) {
+    const sessToken = req.cookies?.[SESSION_COOKIE_NAME];
+    const payload = verifySessionToken(sessToken);
+    if (!payload) return res.status(401).json({ error: 'Authentication required to generate pairing code.' });
+
+    const pairingCode = String(crypto.randomInt(100000, 1000000));
+    const expiresAt = Date.now() + 10 * 60 * 1000;
+    db.prepare(`INSERT INTO pairing_codes (employee_id, code, expires_at) VALUES (?, ?, ?)`).run(payload.uid, pairingCode, expiresAt);
+    return res.status(201).json({ code: pairingCode, expiresAt: new Date(expiresAt).toISOString() });
+  }
+
+  let emp = null;
+  if (code) {
+    const pRow = db.prepare(`SELECT * FROM pairing_codes WHERE code = ? AND used_at IS NULL AND expires_at > ?`).get(String(code).trim(), Date.now());
+    if (!pRow) return res.status(401).json({ error: 'Invalid or expired pairing code.' });
+    emp = db.prepare(`SELECT * FROM employees WHERE id = ? AND is_active = 1`).get(pRow.employee_id);
+    if (!emp) return res.status(401).json({ error: 'Employee account inactive or not found.' });
+    db.prepare(`UPDATE pairing_codes SET used_at = ? WHERE id = ?`).run(new Date().toISOString(), pRow.id);
+  } else if (identifier && pin) {
+    const ident = String(identifier).trim();
+    emp = db.prepare(`SELECT * FROM employees WHERE (LOWER(emp_code) = LOWER(?) OR LOWER(email) = LOWER(?)) AND is_active = 1`).get(ident, ident);
+    if (!emp) return res.status(401).json({ error: 'Invalid employee code/email or PIN.' });
+    if (emp.locked_until && new Date(emp.locked_until).getTime() > Date.now()) {
+      return res.status(423).json({ error: 'Account temporarily locked due to failed attempts.' });
+    }
+    if (!verifyPin(pin, emp.pin)) {
+      const nextFails = (emp.failed_login_attempts || 0) + 1;
+      const lockUntil = nextFails >= 5 ? new Date(Date.now() + 15 * 60 * 1000).toISOString() : null;
+      db.prepare(`UPDATE employees SET failed_login_attempts = ?, locked_until = ? WHERE id = ?`).run(nextFails, lockUntil, emp.id);
+      return res.status(401).json({ error: 'Invalid employee code/email or PIN.' });
+    }
+    db.prepare(`UPDATE employees SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?`).run(emp.id);
+  } else {
+    return res.status(400).json({ error: 'Provide a 6-digit pairing code or employee credentials.' });
+  }
+
+  const rawToken = `zav_dev_${crypto.randomBytes(32).toString('hex')}`;
+  const info = db.prepare(
+    `INSERT INTO device_tokens (employee_id, token_hash, device_name, platform, app_version, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(emp.id, hashDeviceToken(rawToken), String(deviceName).slice(0, 80), String(platform).slice(0, 24), String(appVersion).slice(0, 24), new Date().toISOString());
+
+  writeAuditLog({
+    actorId: emp.id,
+    actorName: emp.name,
+    action: 'PAIR_DESKTOP_DEVICE',
+    entityType: 'device',
+    entityId: info.lastInsertRowid,
+    newValue: { deviceName, platform, appVersion },
+  });
+  res.status(201).json({ deviceId: info.lastInsertRowid, deviceToken: rawToken, employee: sanitizeEmployee(emp) });
+});
+
 // ========================
 // PROTECTED API ROUTES
 // ========================
@@ -648,8 +705,15 @@ app.post('/api/employees/:id/reset-pin', requireRole('admin', 'manager'), (req, 
 app.post('/api/attendance/clock-in', (req, res) => {
   const isPrivileged = req.user.role === 'admin' || req.user.role === 'manager';
   const targetId = isPrivileged && req.body.employeeId ? Number(req.body.employeeId) : req.user.id;
-  const { notes = '', trackingMode = 'tab_only' } = req.body;
-  const safeTrackingMode = trackingMode === 'app_system' ? 'app_system' : trackingMode === 'system' ? 'system' : 'tab_only';
+  const { notes = '', trackingMode = 'tab_only', source } = req.body;
+  const safeTrackingMode =
+    req.deviceAuth || source === 'desktop_agent' || trackingMode === 'desktop'
+      ? 'desktop'
+      : trackingMode === 'app_system'
+      ? 'app_system'
+      : trackingMode === 'system'
+      ? 'system'
+      : 'tab_only';
 
   const emp = db.prepare('SELECT * FROM employees WHERE id = ? AND is_active = 1').get(targetId);
   if (!emp) return res.status(404).json({ error: 'Employee not found' });
@@ -753,7 +817,7 @@ app.post('/api/attendance/clock-out', (req, res) => {
 
 // Phase 1 #4 + Phase 2 #6, #8, #9 + Phase 3 #14
 app.post('/api/activity/heartbeat', (req, res) => {
-  const { state, reason = '', sessionId = '', claimSession = false, trackingMode } = req.body;
+  const { state, reason = '', sessionId = '', claimSession = false, trackingMode, source, deviceId, timestamp } = req.body;
   if (!['active', 'idle', 'break'].includes(state)) {
     return res.status(400).json({ error: 'Valid state (active|idle|break) required' });
   }
@@ -763,18 +827,42 @@ app.post('/api/activity/heartbeat', (req, res) => {
   if (!emp) return res.status(404).json({ error: 'Employee not found' });
 
   const today = getTodayDate();
-  const now = new Date();
+  const realNow = new Date();
+  let now = realNow;
+  if (timestamp) {
+    const parsed = new Date(timestamp);
+    if (Number.isNaN(parsed.getTime())) return res.status(400).json({ error: 'Invalid heartbeat timestamp.' });
+    if (parsed.getTime() > realNow.getTime() + 30000) {
+      return res.status(400).json({ error: 'Future heartbeat timestamp rejected.' });
+    }
+    now = parsed;
+  }
   const nowIso = now.toISOString();
   const att = db.prepare('SELECT * FROM attendance WHERE employee_id = ? AND date = ?').get(employeeId, today);
 
   if (!att || !att.clock_in || att.clock_out) {
     return res.json({ ok: true, ignored: true, reason: 'Employee not currently clocked in' });
   }
+  if (timestamp && now.getTime() < new Date(att.clock_in).getTime() - 5000) {
+    return res.status(400).json({ error: 'Heartbeat timestamp is before current shift clock-in.' });
+  }
+
+  const isDesktopAgent = source === 'desktop_agent' || Boolean(req.deviceAuth);
+  const effectiveSessionId = isDesktopAgent
+    ? `desktop:${req.deviceAuth?.deviceId || deviceId || 'agent'}`
+    : sessionId;
+
+  if (!isDesktopAgent && emp.active_session_id && String(emp.active_session_id).startsWith('desktop:')) {
+    const lastHbMs = emp.last_heartbeat_at ? new Date(emp.last_heartbeat_at).getTime() : 0;
+    if (realNow.getTime() - lastHbMs < 90000) {
+      return res.json({ ok: true, pausedByOtherTab: true, ignoredByDesktopAgent: true, attendance: att });
+    }
+  }
 
   // Multi-tab check (#9): only credit time from the most recent active session
-  if (sessionId && emp.active_session_id && emp.active_session_id !== sessionId && !claimSession) {
+  if (!isDesktopAgent && effectiveSessionId && emp.active_session_id && emp.active_session_id !== effectiveSessionId && !claimSession) {
     const lastHbMs = emp.last_heartbeat_at ? new Date(emp.last_heartbeat_at).getTime() : 0;
-    if (now.getTime() - lastHbMs < 90000) {
+    if (realNow.getTime() - lastHbMs < 90000) {
       return res.json({ ok: true, pausedByOtherTab: true, attendance: att });
     }
   }
@@ -793,10 +881,11 @@ app.post('/api/activity/heartbeat', (req, res) => {
 
   const settings = getSettings();
   const netShiftSec = settings.netWorkHours * 3600;
-  const safeTrackingMode =
-    trackingMode === 'app_system' || trackingMode === 'system' || trackingMode === 'tab_only'
+  const safeTrackingMode = isDesktopAgent
+    ? 'desktop'
+    : (trackingMode === 'app_system' || trackingMode === 'system' || trackingMode === 'tab_only'
       ? trackingMode
-      : null;
+      : null);
 
   if (elapsedSeconds > 0 || safeTrackingMode) {
     db.prepare(`
@@ -842,7 +931,7 @@ app.post('/api/activity/heartbeat', (req, res) => {
     SET status = ?, last_seen_at = ?, last_heartbeat_at = ?, last_heartbeat_state = ?,
         active_session_id = COALESCE(NULLIF(?, ''), active_session_id)
     WHERE id = ?
-  `).run(state, nowIso, nowIso, state, sessionId, employeeId);
+  `).run(state, realNow.toISOString(), nowIso, state, effectiveSessionId, employeeId);
 
   const updatedAtt = db.prepare('SELECT * FROM attendance WHERE id = ?').get(att.id);
   res.json({
@@ -1850,6 +1939,64 @@ app.delete('/api/push/subscribe', requireRole('admin', 'manager'), (req, res) =>
   }
   res.json({ ok: true });
 });
+
+app.get('/api/devices/me', (req, res) => {
+  const today = getTodayDate();
+  const settings = getSettings();
+  const att = db.prepare(`SELECT * FROM attendance WHERE employee_id = ? AND date = ?`).get(req.user.id, today);
+  res.json({
+    employee: req.user,
+    attendance: att || null,
+    settings: {
+      idleThresholdSeconds: settings.idleThresholdSeconds,
+      shiftStart: req.user.shift_start || settings.shiftStart,
+      shiftEnd: req.user.shift_end || settings.shiftEnd,
+    },
+  });
+});
+
+app.post('/api/devices/revoke-self', (req, res) => {
+  if (!req.deviceAuth?.deviceId) return res.status(400).json({ error: 'Device auth required' });
+  db.prepare(`UPDATE device_tokens SET revoked_at = ? WHERE id = ?`).run(new Date().toISOString(), req.deviceAuth.deviceId);
+  db.prepare(`UPDATE employees SET active_session_id = NULL WHERE id = ? AND active_session_id = ?`).run(req.user.id, `desktop:${req.deviceAuth.deviceId}`);
+  res.json({ ok: true });
+});
+
+app.get('/api/devices', (req, res) => {
+  const isPrivileged = req.user.role === 'admin' || req.user.role === 'manager';
+  const targetEmpId = isPrivileged && req.query.employeeId ? Number(req.query.employeeId) : (isPrivileged ? null : req.user.id);
+  const rows = db.prepare(
+    `SELECT d.id, d.employee_id, d.device_name, d.platform, d.app_version, d.created_at, d.last_seen_at, d.revoked_at,
+       e.emp_code, e.name as employee_name, e.department
+     FROM device_tokens d
+     JOIN employees e ON e.id = d.employee_id
+     ${targetEmpId ? 'WHERE d.employee_id = ?' : ''}
+     ORDER BY d.id DESC`
+  ).all(...(targetEmpId ? [targetEmpId] : []));
+  res.json(rows);
+});
+
+function revokeDeviceHandler(req, res) {
+  const dev = db.prepare(`SELECT * FROM device_tokens WHERE id = ?`).get(req.params.id);
+  if (!dev) return res.status(404).json({ error: 'Device not found' });
+  const isPrivileged = req.user.role === 'admin' || req.user.role === 'manager';
+  if (!isPrivileged && dev.employee_id !== req.user.id) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  db.prepare(`UPDATE device_tokens SET revoked_at = ? WHERE id = ?`).run(new Date().toISOString(), dev.id);
+  db.prepare(`UPDATE employees SET active_session_id = NULL WHERE id = ? AND active_session_id = ?`).run(dev.employee_id, `desktop:${dev.id}`);
+  writeAuditLog({
+    actorId: req.user.id,
+    actorName: req.user.name,
+    action: 'REVOKE_DEVICE',
+    entityType: 'device',
+    entityId: dev.id,
+    newValue: { employee_id: dev.employee_id, device_name: dev.device_name },
+  });
+  res.json({ ok: true });
+}
+app.delete('/api/devices/:id', revokeDeviceHandler);
+app.post('/api/devices/:id/revoke', revokeDeviceHandler);
 
 // ========================
 // TEAM CHAT & ZAVIROQ BOT (Phase 4 #16: File Uploads + ?after=<id> incremental)

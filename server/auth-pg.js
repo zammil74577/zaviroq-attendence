@@ -49,8 +49,43 @@ export function clearSessionCookie(res) {
   res.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
 }
 
+export function hashDeviceToken(rawToken) {
+  return crypto.createHash('sha256').update(String(rawToken)).digest('hex');
+}
+
+const DEVICE_ALLOWED_PATHS = new Set([
+  '/activity/heartbeat',
+  '/attendance/clock-in',
+  '/attendance/clock-out',
+  '/devices/me',
+  '/devices/revoke-self',
+]);
+
 export async function requireAuth(req, res, next) {
   try {
+    const authHeader = req.headers.authorization || '';
+    if (authHeader.startsWith('Bearer zav_dev_')) {
+      if (!DEVICE_ALLOWED_PATHS.has(req.path)) {
+        return res.status(401).json({ error: 'Device token not permitted on this endpoint' });
+      }
+      const raw = authHeader.slice('Bearer '.length).trim();
+      const dev = await getOne(
+        `SELECT id, employee_id, device_name, platform, revoked_at FROM device_tokens WHERE token_hash = $1`,
+        [hashDeviceToken(raw)]
+      );
+      if (!dev || dev.revoked_at) {
+        return res.status(401).json({ error: 'Device token revoked or invalid' });
+      }
+      const emp = await getOne(`SELECT * FROM employees WHERE id = $1 AND is_active = TRUE`, [dev.employee_id]);
+      if (!emp) {
+        return res.status(401).json({ error: 'Invalid or deactivated employee' });
+      }
+      await query(`UPDATE device_tokens SET last_seen_at = NOW() WHERE id = $1`, [dev.id]);
+      req.user = sanitizeEmployee(emp);
+      req.deviceAuth = { deviceId: dev.id, deviceName: dev.device_name, platform: dev.platform };
+      return next();
+    }
+
     const token = req.cookies?.[SESSION_COOKIE_NAME];
     const payload = await verifySessionToken(token);
     if (!payload) {

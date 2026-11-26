@@ -303,6 +303,29 @@ export function initSchema() {
       auth TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS device_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id INTEGER NOT NULL,
+      token_hash TEXT UNIQUE NOT NULL,
+      device_name TEXT NOT NULL DEFAULT 'Desktop Device',
+      platform TEXT NOT NULL DEFAULT 'windows',
+      app_version TEXT NOT NULL DEFAULT '1.0.0',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_seen_at TEXT,
+      revoked_at TEXT,
+      FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS pairing_codes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id INTEGER NOT NULL,
+      code TEXT UNIQUE NOT NULL,
+      expires_at INTEGER NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
+    );
   `);
 }
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Save, CalendarPlus, Trash2, Bell, BellRing } from 'lucide-react';
-import type { AlertRule, Holiday, OfficeSchedule } from '../types';
+import { Save, CalendarPlus, Trash2, Bell, BellRing, Monitor, Download } from 'lucide-react';
+import type { AlertRule, DeviceTokenInfo, Holiday, OfficeSchedule } from '../types';
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -19,10 +19,12 @@ interface SettingsTabProps {
 }
 
 export const SettingsTab: React.FC<SettingsTabProps> = ({ onSaved }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'general' | 'alerts'>('general');
+  const [activeSubTab, setActiveSubTab] = useState<'general' | 'alerts' | 'desktop'>('general');
   const [settings, setSettings] = useState<OfficeSchedule | null>(null);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
+  const [devices, setDevices] = useState<DeviceTokenInfo[]>([]);
+  const [totalActiveEmployees, setTotalActiveEmployees] = useState<number>(0);
   const [pushEnabled, setPushEnabled] = useState<boolean>(false);
   const [pushBusy, setPushBusy] = useState<boolean>(false);
   const [newHolidayDate, setNewHolidayDate] = useState('');
@@ -31,13 +33,20 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ onSaved }) => {
   const [msg, setMsg] = useState<string | null>(null);
 
   const loadAll = async () => {
-    const [sRes, hRes, aRes] = await Promise.all([
+    const [sRes, hRes, aRes, dRes, dashRes] = await Promise.all([
       fetch('/api/settings'),
       fetch('/api/holidays'),
       fetch('/api/alert-rules'),
+      fetch('/api/devices'),
+      fetch('/api/dashboard'),
     ]);
     if (sRes.ok) setSettings(await sRes.json());
     if (hRes.ok) setHolidays(await hRes.json());
+    if (dRes.ok) setDevices(await dRes.json());
+    if (dashRes.ok) {
+      const dj = await dashRes.json();
+      setTotalActiveEmployees(Array.isArray(dj.employees) ? dj.employees.length : 0);
+    }
     if (aRes.ok) {
       const raw: AlertRule[] = await aRes.json();
       setAlertRules(
@@ -204,6 +213,16 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ onSaved }) => {
             <Bell className="h-3.5 w-3.5" />
             Alerts
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('desktop')}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer ${
+              activeSubTab === 'desktop' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Monitor className="h-3.5 w-3.5" />
+            Desktop App
+          </button>
         </div>
       </div>
 
@@ -334,7 +353,59 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ onSaved }) => {
             })}
           </div>
         </div>
-      ) : (
+      ) : activeSubTab === 'desktop' ? (() => {
+        const connectedEmpIds = new Set(devices.filter((d) => !d.revoked_at).map((d) => d.employee_id));
+        const connectedCount = connectedEmpIds.size;
+        const notConnectedCount = Math.max(0, totalActiveEmployees - connectedCount);
+        const releaseBase = 'https://github.com/zammil74577/zaviroq-attendence/releases/latest';
+        return (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+                <div className="text-xs text-slate-400">Current Agent Version</div>
+                <div className="mt-1 text-xl font-bold text-white font-mono-num">v1.0.0</div>
+              </div>
+              <div className="rounded-2xl border border-emerald-500/25 bg-slate-900/70 p-4">
+                <div className="text-xs text-slate-400">Employees Connected</div>
+                <div className="mt-1 text-xl font-bold text-emerald-300 font-mono-num">{connectedCount}</div>
+              </div>
+              <div className="rounded-2xl border border-amber-500/25 bg-slate-900/70 p-4">
+                <div className="text-xs text-slate-400">Not Connected</div>
+                <div className="mt-1 text-xl font-bold text-amber-300 font-mono-num">{notConnectedCount}</div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 space-y-4">
+              <div>
+                <h2 className="text-base font-semibold text-white">Zaviroq Desktop Agent Distribution</h2>
+                <p className="text-xs text-slate-400">
+                  Lightweight Windows &amp; macOS tray app for reliable system idle detection, auto-start at login, and offline heartbeat queuing.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <a
+                  href={releaseBase}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-4 py-2.5 text-xs font-semibold text-white"
+                >
+                  <Download className="h-4 w-4" />
+                  Download for Windows (.exe / .msi)
+                </a>
+                <a
+                  href={releaseBase}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 px-4 py-2.5 text-xs font-semibold text-white"
+                >
+                  <Download className="h-4 w-4" />
+                  Download for macOS (.dmg Universal)
+                </a>
+              </div>
+            </div>
+          </div>
+        );
+      })() : (
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <form onSubmit={handleSave} className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 space-y-4">
           <h2 className="text-base font-semibold text-white">Shift, Break & Payroll Policies</h2>

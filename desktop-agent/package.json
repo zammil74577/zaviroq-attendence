@@ -1,0 +1,20 @@
+{
+  "name": "zaviroq-desktop-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Zaviroq Workforce Desktop Agent (Tauri v2 tray presence tracker)",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "build:mac-universal": "tauri build --target universal-apple-darwin",
+    "build:win-x64": "tauri build --target x86_64-pc-windows-msvc"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.2.0",
+    "@tauri-apps/plugin-autostart": "^2.2.0",
+    "@tauri-apps/plugin-updater": "^2.2.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.2.0"
+  }
+}

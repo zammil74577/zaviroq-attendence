@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { UserPlus, Megaphone, Mail, Clock, Search, Edit3, X, Copy, KeyRound, RefreshCw } from 'lucide-react';
-import type { Employee, ViewMode } from '../types';
+import { UserPlus, Megaphone, Mail, Clock, Search, Edit3, X, Copy, KeyRound, RefreshCw, Monitor } from 'lucide-react';
+import type { DeviceTokenInfo, Employee, ViewMode } from '../types';
 import { getInitials } from '../utils/format';
 import { LiveStatusBadge } from './StatusBadge';
 
@@ -49,6 +49,8 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
   onPostAnnouncement,
 }) => {
   const [search, setSearch] = useState('');
+  const [directorySubTab, setDirectorySubTab] = useState<'team' | 'devices'>('team');
+  const [devices, setDevices] = useState<DeviceTokenInfo[]>([]);
   const [showInactive, setShowInactive] = useState(false);
   const [allEmployees, setAllEmployees] = useState<Employee[] | null>(null);
   const [showEmpModal, setShowEmpModal] = useState(false);
@@ -92,6 +94,15 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
       setAllEmployees(null);
     }
   }, [showInactive, employees]);
+
+  const loadDevices = async () => {
+    const r = await fetch('/api/devices');
+    if (r.ok) setDevices(await r.json());
+  };
+
+  useEffect(() => {
+    if (directorySubTab === 'devices') loadDevices();
+  }, [directorySubTab]);
 
   const sourceList = showInactive && allEmployees ? allEmployees : employees;
 
@@ -169,6 +180,27 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
 
         {viewMode === 'admin' && (
           <div className="flex items-center gap-2.5 flex-wrap">
+            <div className="inline-flex rounded-xl border border-slate-800 bg-slate-900 p-1">
+              <button
+                type="button"
+                onClick={() => setDirectorySubTab('team')}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer ${
+                  directorySubTab === 'team' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Team
+              </button>
+              <button
+                type="button"
+                onClick={() => setDirectorySubTab('devices')}
+                className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer ${
+                  directorySubTab === 'devices' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Monitor className="h-3.5 w-3.5" />
+                Devices
+              </button>
+            </div>
             <button
               onClick={() => setShowAnnModal(true)}
               className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 px-3.5 py-2 text-xs font-semibold text-slate-200 cursor-pointer"
@@ -219,6 +251,72 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
         </div>
       )}
 
+      {directorySubTab === 'devices' && viewMode === 'admin' ? (
+        <div className="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-900/70">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-slate-800 bg-slate-950/60 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              <tr>
+                <th className="px-4 py-3">Employee</th>
+                <th className="px-4 py-3">Device</th>
+                <th className="px-4 py-3">Platform</th>
+                <th className="px-4 py-3">Version</th>
+                <th className="px-4 py-3">Last Seen</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/70 text-xs">
+              {devices.map((d) => (
+                <tr key={d.id} className="hover:bg-slate-800/30">
+                  <td className="px-4 py-3">
+                    <div className="font-semibold text-white">{d.employee_name}</div>
+                    <div className="text-[11px] text-slate-400">{d.emp_code} • {d.department}</div>
+                  </td>
+                  <td className="px-4 py-3 text-slate-200">{d.device_name}</td>
+                  <td className="px-4 py-3 capitalize text-slate-300">{d.platform}</td>
+                  <td className="px-4 py-3 font-mono-num text-slate-400">{d.app_version}</td>
+                  <td className="px-4 py-3 font-mono-num text-slate-400">
+                    {d.last_seen_at ? String(d.last_seen_at).slice(0, 16).replace('T', ' ') : 'Never'}
+                  </td>
+                  <td className="px-4 py-3">
+                    {d.revoked_at ? (
+                      <span className="rounded-md border border-slate-600 bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-400">
+                        Revoked
+                      </span>
+                    ) : (
+                      <span className="rounded-md border border-emerald-500/30 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
+                        Active
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {!d.revoked_at && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const r = await fetch(`/api/devices/${d.id}/revoke`, { method: 'POST' });
+                          if (r.ok) {
+                            setActionMsg(`Revoked device ${d.device_name}.`);
+                            await loadDevices();
+                          }
+                        }}
+                        className="rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 px-2.5 py-1 text-[11px] font-semibold text-rose-300 cursor-pointer"
+                      >
+                        Revoke
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {devices.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="p-8 text-center text-slate-400">No desktop devices paired yet.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filtered.map((emp) => {
           const isSelf = currentUser?.id === emp.id;
@@ -275,11 +373,11 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
                   <div className="flex items-center justify-between">
                     <span>Tracker:</span>
                     <span className="text-[11px] font-medium text-indigo-300">
-                      {emp.tracking_mode === 'app_system'
-                        ? 'App (system)'
-                        : emp.tracking_mode === 'system'
-                        ? 'Tab (system)'
-                        : 'Tab only'}
+                      {emp.tracking_mode === 'desktop'
+                        ? 'Desktop app'
+                        : emp.tracking_mode === 'app_system'
+                        ? 'Browser app'
+                        : 'Tab'}
                     </span>
                   </div>
                 )}
@@ -354,6 +452,7 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
           );
         })}
       </div>
+      )}
 
       {/* Edit Employee Modal */}
       {editingEmp && (

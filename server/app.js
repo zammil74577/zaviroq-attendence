@@ -28,6 +28,8 @@ import {
   setSessionCookie,
   clearSessionCookie,
   revokeSessionToken,
+  verifySessionToken,
+  hashDeviceToken,
 } from './auth-pg.js';
 import { uploadChatImage, signChatImageUrl } from './storage.js';
 import { evaluateAlertRules } from './alerts.js';
@@ -437,6 +439,76 @@ app.post('/api/auth/logout', async (req, res) => {
 });
 
 // ========================
+// DESKTOP AGENT PAIRING (Public exchange OR Cookie-authenticated code generation)
+// ========================
+app.post('/api/devices/pair', loginLimiter, async (req, res) => {
+  const { code, identifier, pin, deviceName = 'Zaviroq Desktop', platform = 'windows', appVersion = '1.0.0' } = req.body || {};
+
+  // Case 1: Web user generating a 6-digit one-time pairing code (valid 10 min)
+  if (!code && !identifier && !pin) {
+    const sessToken = req.cookies?.[SESSION_COOKIE_NAME];
+    const payload = await verifySessionToken(sessToken);
+    if (!payload) return res.status(401).json({ error: 'Authentication required to generate pairing code.' });
+
+    const pairingCode = String(crypto.randomInt(100000, 1000000));
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    await query(
+      `INSERT INTO pairing_codes (employee_id, code, expires_at) VALUES ($1, $2, $3::timestamptz)`,
+      [payload.uid, pairingCode, expiresAt]
+    );
+    return res.status(201).json({ code: pairingCode, expiresAt });
+  }
+
+  // Case 2: Desktop agent pairing via 6-digit code OR code+PIN
+  let emp = null;
+  if (code) {
+    const pRow = await getOne(
+      `SELECT * FROM pairing_codes WHERE code = $1 AND used_at IS NULL AND expires_at > NOW()`,
+      [String(code).trim()]
+    );
+    if (!pRow) return res.status(401).json({ error: 'Invalid or expired pairing code.' });
+    emp = await getOne(`SELECT * FROM employees WHERE id = $1 AND is_active = TRUE`, [pRow.employee_id]);
+    if (!emp) return res.status(401).json({ error: 'Employee account inactive or not found.' });
+    await query(`UPDATE pairing_codes SET used_at = NOW() WHERE id = $1`, [pRow.id]);
+  } else if (identifier && pin) {
+    const ident = String(identifier).trim();
+    emp = await getOne(
+      `SELECT * FROM employees WHERE (LOWER(emp_code) = LOWER($1) OR LOWER(email) = LOWER($1)) AND is_active = TRUE`,
+      [ident]
+    );
+    if (!emp) return res.status(401).json({ error: 'Invalid employee code/email or PIN.' });
+    if (emp.locked_until && new Date(emp.locked_until).getTime() > Date.now()) {
+      return res.status(423).json({ error: 'Account temporarily locked due to failed attempts.' });
+    }
+    if (!verifyPin(pin, emp.pin)) {
+      const nextFails = (emp.failed_login_attempts || 0) + 1;
+      const lockUntil = nextFails >= 5 ? new Date(Date.now() + 15 * 60 * 1000).toISOString() : null;
+      await query(`UPDATE employees SET failed_login_attempts = $1, locked_until = $2::timestamptz WHERE id = $3`, [nextFails, lockUntil, emp.id]);
+      return res.status(401).json({ error: 'Invalid employee code/email or PIN.' });
+    }
+    await query(`UPDATE employees SET failed_login_attempts = 0, locked_until = NULL WHERE id = $1`, [emp.id]);
+  } else {
+    return res.status(400).json({ error: 'Provide a 6-digit pairing code or employee credentials.' });
+  }
+
+  const rawToken = `zav_dev_${crypto.randomBytes(32).toString('hex')}`;
+  const inserted = await getOne(
+    `INSERT INTO device_tokens (employee_id, token_hash, device_name, platform, app_version, last_seen_at)
+     VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id`,
+    [emp.id, hashDeviceToken(rawToken), String(deviceName).slice(0, 80), String(platform).slice(0, 24), String(appVersion).slice(0, 24)]
+  );
+  await writeAuditLog({
+    actorId: emp.id,
+    actorName: emp.name,
+    action: 'PAIR_DESKTOP_DEVICE',
+    entityType: 'device',
+    entityId: inserted.id,
+    newValue: { deviceName, platform, appVersion },
+  });
+  res.status(201).json({ deviceId: inserted.id, deviceToken: rawToken, employee: sanitizeEmployee(emp) });
+});
+
+// ========================
 // PROTECTED ROUTES
 // ========================
 app.use('/api', requireAuth);
@@ -648,8 +720,15 @@ app.post('/api/employees/:id/reset-pin', requireRole('admin', 'manager'), async 
 app.post('/api/attendance/clock-in', async (req, res) => {
   const isPrivileged = req.user.role === 'admin' || req.user.role === 'manager';
   const targetId = isPrivileged && req.body.employeeId ? Number(req.body.employeeId) : req.user.id;
-  const { notes = '', trackingMode = 'tab_only' } = req.body;
-  const safeTrackingMode = trackingMode === 'app_system' ? 'app_system' : trackingMode === 'system' ? 'system' : 'tab_only';
+  const { notes = '', trackingMode = 'tab_only', source } = req.body;
+  const safeTrackingMode =
+    req.deviceAuth || source === 'desktop_agent' || trackingMode === 'desktop'
+      ? 'desktop'
+      : trackingMode === 'app_system'
+      ? 'app_system'
+      : trackingMode === 'system'
+      ? 'system'
+      : 'tab_only';
 
   const emp = await getOne('SELECT * FROM employees WHERE id = $1 AND is_active = TRUE', [targetId]);
   if (!emp) return res.status(404).json({ error: 'Employee not found' });
@@ -727,7 +806,7 @@ app.post('/api/attendance/clock-out', async (req, res) => {
 });
 
 app.post('/api/activity/heartbeat', async (req, res) => {
-  const { state, reason = '', sessionId = '', claimSession = false, trackingMode } = req.body;
+  const { state, reason = '', sessionId = '', claimSession = false, trackingMode, source, deviceId, timestamp } = req.body;
   if (!['active', 'idle', 'break'].includes(state)) {
     return res.status(400).json({ error: 'Valid state (active|idle|break) required' });
   }
@@ -737,15 +816,41 @@ app.post('/api/activity/heartbeat', async (req, res) => {
   if (!emp) return res.status(404).json({ error: 'Employee not found' });
 
   const today = getTodayDateInTz();
-  const now = new Date();
+  const realNow = new Date();
+  let now = realNow;
+  if (timestamp) {
+    const parsed = new Date(timestamp);
+    if (Number.isNaN(parsed.getTime())) return res.status(400).json({ error: 'Invalid heartbeat timestamp.' });
+    if (parsed.getTime() > realNow.getTime() + 30000) {
+      return res.status(400).json({ error: 'Future heartbeat timestamp rejected.' });
+    }
+    now = parsed;
+  }
+
   const att = await getOne('SELECT * FROM attendance WHERE employee_id = $1 AND date = $2::date', [employeeId, today]);
   if (!att || !att.clock_in || att.clock_out) {
     return res.json({ ok: true, ignored: true, reason: 'Employee not currently clocked in' });
   }
+  if (timestamp && now.getTime() < new Date(att.clock_in).getTime() - 5000) {
+    return res.status(400).json({ error: 'Heartbeat timestamp is before current shift clock-in.' });
+  }
 
-  if (sessionId && emp.active_session_id && emp.active_session_id !== sessionId && !claimSession) {
+  const isDesktopAgent = source === 'desktop_agent' || Boolean(req.deviceAuth);
+  const effectiveSessionId = isDesktopAgent
+    ? `desktop:${req.deviceAuth?.deviceId || deviceId || 'agent'}`
+    : sessionId;
+
+  // Prefer desktop agent: ignore browser tab heartbeats while desktop agent is active (< 90s)
+  if (!isDesktopAgent && emp.active_session_id && String(emp.active_session_id).startsWith('desktop:')) {
     const lastHbMs = emp.last_heartbeat_at ? new Date(emp.last_heartbeat_at).getTime() : 0;
-    if (now.getTime() - lastHbMs < 90000) {
+    if (realNow.getTime() - lastHbMs < 90000) {
+      return res.json({ ok: true, pausedByOtherTab: true, ignoredByDesktopAgent: true, attendance: att });
+    }
+  }
+
+  if (!isDesktopAgent && effectiveSessionId && emp.active_session_id && emp.active_session_id !== effectiveSessionId && !claimSession) {
+    const lastHbMs = emp.last_heartbeat_at ? new Date(emp.last_heartbeat_at).getTime() : 0;
+    if (realNow.getTime() - lastHbMs < 90000) {
       return res.json({ ok: true, pausedByOtherTab: true, attendance: att });
     }
   }
@@ -762,10 +867,11 @@ app.post('/api/activity/heartbeat', async (req, res) => {
   const col = prevState === 'active' ? 'active_seconds' : prevState === 'idle' ? 'idle_seconds' : 'break_seconds';
   const settings = await getSettings();
   const netShiftSec = settings.netWorkHours * 3600;
-  const safeTrackingMode =
-    trackingMode === 'app_system' || trackingMode === 'system' || trackingMode === 'tab_only'
+  const safeTrackingMode = isDesktopAgent
+    ? 'desktop'
+    : (trackingMode === 'app_system' || trackingMode === 'system' || trackingMode === 'tab_only'
       ? trackingMode
-      : null;
+      : null);
 
   if (elapsedSeconds > 0 || safeTrackingMode) {
     await query(
@@ -800,8 +906,8 @@ app.post('/api/activity/heartbeat', async (req, res) => {
   }
 
   await query(
-    `UPDATE employees SET status = $1, last_seen_at = NOW(), last_heartbeat_at = NOW(), last_heartbeat_state = $1, active_session_id = COALESCE(NULLIF($2, ''), active_session_id) WHERE id = $3`,
-    [state, sessionId, employeeId]
+    `UPDATE employees SET status = $1, last_seen_at = NOW(), last_heartbeat_at = $2::timestamptz, last_heartbeat_state = $1, active_session_id = COALESCE(NULLIF($3, ''), active_session_id) WHERE id = $4`,
+    [state, now.toISOString(), effectiveSessionId, employeeId]
   );
 
   const updatedAtt = await getOne('SELECT * FROM attendance WHERE id = $1', [att.id]);
@@ -1459,6 +1565,70 @@ app.delete('/api/push/subscribe', requireRole('admin', 'manager'), async (req, r
   }
   res.json({ ok: true });
 });
+
+// ========================
+// DESKTOP DEVICES MANAGEMENT
+// ========================
+app.get('/api/devices/me', async (req, res) => {
+  const today = getTodayDateInTz();
+  const [settings, att] = await Promise.all([
+    getSettings(),
+    getOne(`SELECT * FROM attendance WHERE employee_id = $1 AND date = $2::date`, [req.user.id, today]),
+  ]);
+  res.json({
+    employee: req.user,
+    attendance: att,
+    settings: {
+      idleThresholdSeconds: settings.idleThresholdSeconds,
+      shiftStart: req.user.shift_start || settings.shiftStart,
+      shiftEnd: req.user.shift_end || settings.shiftEnd,
+    },
+  });
+});
+
+app.post('/api/devices/revoke-self', async (req, res) => {
+  if (!req.deviceAuth?.deviceId) return res.status(400).json({ error: 'Device auth required' });
+  await query(`UPDATE device_tokens SET revoked_at = NOW() WHERE id = $1`, [req.deviceAuth.deviceId]);
+  await query(`UPDATE employees SET active_session_id = NULL WHERE id = $1 AND active_session_id = $2`, [req.user.id, `desktop:${req.deviceAuth.deviceId}`]);
+  res.json({ ok: true });
+});
+
+app.get('/api/devices', async (req, res) => {
+  const isPrivileged = req.user.role === 'admin' || req.user.role === 'manager';
+  const targetEmpId = isPrivileged && req.query.employeeId ? Number(req.query.employeeId) : (isPrivileged ? null : req.user.id);
+  const rows = await getAll(
+    `SELECT d.id, d.employee_id, d.device_name, d.platform, d.app_version, d.created_at, d.last_seen_at, d.revoked_at,
+       e.emp_code, e.name as employee_name, e.department
+     FROM device_tokens d
+     JOIN employees e ON e.id = d.employee_id
+     ${targetEmpId ? 'WHERE d.employee_id = $1' : ''}
+     ORDER BY d.id DESC`,
+    targetEmpId ? [targetEmpId] : []
+  );
+  res.json(rows);
+});
+
+async function revokeDeviceHandler(req, res) {
+  const dev = await getOne(`SELECT * FROM device_tokens WHERE id = $1`, [req.params.id]);
+  if (!dev) return res.status(404).json({ error: 'Device not found' });
+  const isPrivileged = req.user.role === 'admin' || req.user.role === 'manager';
+  if (!isPrivileged && dev.employee_id !== req.user.id) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  await query(`UPDATE device_tokens SET revoked_at = NOW() WHERE id = $1`, [dev.id]);
+  await query(`UPDATE employees SET active_session_id = NULL WHERE id = $1 AND active_session_id = $2`, [dev.employee_id, `desktop:${dev.id}`]);
+  await writeAuditLog({
+    actorId: req.user.id,
+    actorName: req.user.name,
+    action: 'REVOKE_DEVICE',
+    entityType: 'device',
+    entityId: dev.id,
+    newValue: { employee_id: dev.employee_id, device_name: dev.device_name },
+  });
+  res.json({ ok: true });
+}
+app.delete('/api/devices/:id', revokeDeviceHandler);
+app.post('/api/devices/:id/revoke', revokeDeviceHandler);
 
 // ========================
 // CHAT + SUPABASE STORAGE SIGNED IMAGES

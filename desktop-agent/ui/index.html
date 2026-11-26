@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zaviroq Workforce</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 18px;
+      margin-bottom: 14px;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+    }
+    h1 {
+      font-size: 18px;
+      margin: 0 0 4px 0;
+    }
+    .sub {
+      font-size: 12px;
+      color: #64748b;
+      margin-bottom: 14px;
+    }
+    .tabs {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+    .tab {
+      flex: 1;
+      padding: 8px;
+      border-radius: 10px;
+      border: 1px solid #e2e8f0;
+      background: #f1f5f9;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .tab.active {
+      background: #0f172a;
+      color: #ffffff;
+      border-color: #0f172a;
+    }
+    label {
+      display: block;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #475569;
+      margin-bottom: 4px;
+    }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 9px 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      font-size: 13px;
+      margin-bottom: 10px;
+    }
+    button.primary {
+      width: 100%;
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: none;
+      background: #0f172a;
+      color: #ffffff;
+      font-weight: 700;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    button.secondary {
+      padding: 8px 12px;
+      border-radius: 10px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      color: #0f172a;
+      font-weight: 600;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      margin-right: 6px;
+    }
+    .dot.active { background: #10b981; }
+    .dot.idle { background: #f59e0b; }
+    .dot.break { background: #6366f1; }
+    .dot.offline { background: #94a3b8; }
+    .metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin: 12px 0;
+    }
+    .metric {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 10px;
+    }
+    .metric .val {
+      font-size: 18px;
+      font-weight: 800;
+    }
+    .err {
+      background: #fef2f2;
+      color: #b91c1c;
+      border: 1px solid #fecaca;
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 12px;
+      margin-bottom: 10px;
+    }
+    ul {
+      padding-left: 18px;
+      margin: 6px 0 0 0;
+      font-size: 12px;
+      color: #334155;
+    }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div id="error-box" class="err hidden"></div>
+
+  <!-- Sign In View -->
+  <div id="signin-view" class="card">
+    <h1>Sign in to Zaviroq</h1>
+    <div class="sub">Desktop Agent &bull; Presence-only tracking</div>
+    <div class="tabs">
+      <button id="mode-pin" class="tab active" onclick="setLoginMode('pin')">Code + PIN</button>
+      <button id="mode-code" class="tab" onclick="setLoginMode('code')">6-Digit Pairing Code</button>
+    </div>
+
+    <div id="pin-fields">
+      <label>Employee Code or Email</label>
+      <input id="identifier" placeholder="e.g. EMP-001" />
+      <label>PIN</label>
+      <input id="pin" type="password" placeholder="Enter your PIN" />
+    </div>
+
+    <div id="code-fields" class="hidden">
+      <label>6-Digit Pairing Code</label>
+      <input id="pairing-code" maxlength="6" placeholder="123456" />
+      <div class="sub" style="margin-bottom:8px;">Generate this from your web dashboard under &ldquo;Connect desktop app&rdquo;.</div>
+    </div>
+
+    <button class="primary" onclick="handleSignIn()">Sign in &amp; Connect</button>
+  </div>
+
+  <!-- Signed-In Status View -->
+  <div id="status-view" class="card hidden">
+    <div class="row">
+      <div>
+        <h1 id="emp-name">Employee</h1>
+        <div class="sub" id="emp-code" style="margin-bottom:0;"></div>
+      </div>
+      <div id="state-pill" style="font-size:12px;font-weight:700;">
+        <span id="state-dot" class="dot offline"></span><span id="state-label">Offline</span>
+      </div>
+    </div>
+
+    <div class="metrics">
+      <div class="metric">
+        <label>Today Active</label>
+        <div class="val" id="active-time">0m</div>
+      </div>
+      <div class="metric">
+        <label>Today Idle</label>
+        <div class="val" id="idle-time">0m</div>
+      </div>
+    </div>
+
+    <div id="queue-note" class="sub hidden"></div>
+
+    <div class="row" style="margin-bottom:10px;">
+      <button id="btn-clock-in" class="primary" onclick="callAction('clock_in')">Clock In</button>
+      <button id="btn-break" class="secondary hidden" onclick="callAction('take_break')">Take Break</button>
+      <button id="btn-resume" class="secondary hidden" onclick="callAction('resume_work')">Resume</button>
+      <button id="btn-clock-out" class="secondary hidden" onclick="callAction('clock_out')">Clock Out</button>
+    </div>
+
+    <div class="row" style="margin-top:12px;padding-top:10px;border-top:1px solid #e2e8f0;">
+      <label style="margin:0;display:flex;align-items:center;gap:6px;text-transform:none;font-size:12px;">
+        <input id="autostart-toggle" type="checkbox" style="width:auto;margin:0;" onchange="toggleAutostart(this.checked)" />
+        Start when I sign in
+      </label>
+      <button class="secondary" onclick="signOut()">Sign out</button>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <button class="secondary" style="flex:1;" onclick="openDashboard()">Open Dashboard</button>
+      <button class="secondary" style="flex:1;" onclick="checkUpdates()">Check Updates</button>
+    </div>
+  </div>
+
+  <!-- Transparency Card -->
+  <div class="card">
+    <div class="row" onclick="togglePrivacy()" style="cursor:pointer;">
+      <strong style="font-size:13px;">What is tracked?</strong>
+      <span style="font-size:11px;color:#64748b;">Privacy Guarantee</span>
+    </div>
+    <div id="privacy-body" style="margin-top:8px;font-size:12px;color:#475569;">
+      Zaviroq Desktop Agent only checks OS input idle duration and screen lock/sleep state to report <strong>active</strong> or <strong>idle</strong> presence.
+      <ul>
+        <li>No screenshots or screen recording</li>
+        <li>No keystroke logging or mouse coordinates</li>
+        <li>No window titles, URLs, or app names</li>
+        <li>Device token is stored in your OS Keychain</li>
+      </ul>
+    </div>
+  </div>
+
+  <script>
+    const invoke = window.__TAURI__ ? window.__TAURI__.core.invoke : async () => ({});
+    let loginMode = 'pin';
+    let lastStatus = null;
+
+    function fmtMins(secs) {
+      const m = Math.floor((secs || 0) / 60);
+      const h = Math.floor(m / 60);
+      return h > 0 ? `${h}h ${m % 60}m` : `${m}m`;
+    }
+
+    function showError(msg) {
+      const box = document.getElementById('error-box');
+      if (!msg) { box.classList.add('hidden'); return; }
+      box.textContent = msg;
+      box.classList.remove('hidden');
+    }
+
+    function setLoginMode(mode) {
+      loginMode = mode;
+      document.getElementById('mode-pin').classList.toggle('active', mode === 'pin');
+      document.getElementById('mode-code').classList.toggle('active', mode === 'code');
+      document.getElementById('pin-fields').classList.toggle('hidden', mode !== 'pin');
+      document.getElementById('code-fields').classList.toggle('hidden', mode !== 'code');
+    }
+
+    function render(status) {
+      lastStatus = status;
+      showError(status.last_error);
+      document.getElementById('signin-view').classList.toggle('hidden', status.signed_in);
+      document.getElementById('status-view').classList.toggle('hidden', !status.signed_in);
+      if (!status.signed_in) return;
+
+      document.getElementById('emp-name').textContent = status.employee_name || 'Signed in';
+      document.getElementById('emp-code').textContent = status.employee_code || '';
+      document.getElementById('active-time').textContent = fmtMins(status.active_seconds);
+      document.getElementById('idle-time').textContent = fmtMins(status.idle_seconds);
+
+      const dot = document.getElementById('state-dot');
+      const label = document.getElementById('state-label');
+      dot.className = 'dot ' + (status.clocked_in ? status.presence_state : 'offline');
+      label.textContent = status.clocked_in ? status.presence_state.toUpperCase() : 'CLOCKED OUT';
+
+      document.getElementById('btn-clock-in').classList.toggle('hidden', status.clocked_in);
+      document.getElementById('btn-clock-out').classList.toggle('hidden', !status.clocked_in);
+      document.getElementById('btn-break').classList.toggle('hidden', !status.clocked_in || status.presence_state === 'break');
+      document.getElementById('btn-resume').classList.toggle('hidden', !status.clocked_in || status.presence_state !== 'break');
+
+      const qNote = document.getElementById('queue-note');
+      if (status.queued_heartbeats > 0) {
+        qNote.textContent = `${status.queued_heartbeats} offline heartbeat(s) queued for sync`;
+        qNote.classList.remove('hidden');
+      } else {
+        qNote.classList.add('hidden');
+      }
+    }
+
+    async function handleSignIn() {
+      showError('');
+      try {
+        const res = loginMode === 'pin'
+          ? await invoke('login_with_pin', {
+              identifier: document.getElementById('identifier').value,
+              pin: document.getElementById('pin').value,
+            })
+          : await invoke('pair_with_code', {
+              code: document.getElementById('pairing-code').value,
+            });
+        render(res);
+      } catch (e) {
+        showError(String(e));
+      }
+    }
+
+    async function callAction(cmd) {
+      showError('');
+      try {
+        render(await invoke(cmd));
+      } catch (e) {
+        showError(String(e));
+      }
+    }
+
+    async function signOut() {
+      render(await invoke('sign_out'));
+    }
+
+    async function toggleAutostart(enabled) {
+      try {
+        await invoke('set_autostart_enabled', { enabled });
+      } catch (e) {
+        showError(String(e));
+      }
+    }
+
+    async function checkUpdates() {
+      try {
+        const msg = await invoke('check_for_updates');
+        alert(msg);
+      } catch (e) {
+        showError(String(e));
+      }
+    }
+
+    function openDashboard() {
+      const base = (lastStatus && lastStatus.api_base) || 'https://zaviroq-attendence.vercel.app';
+      window.open(base, '_blank');
+    }
+
+    function togglePrivacy() {
+      document.getElementById('privacy-body').classList.toggle('hidden');
+    }
+
+    window.__confirmQuit = async function () {
+      if (lastStatus && lastStatus.clocked_in) {
+        const clockOutFirst = confirm('Quitting stops tracking. Clock out first?');
+        if (clockOutFirst) {
+          await callAction('clock_out');
+        }
+      }
+      window.close();
+    };
+
+    async function refresh() {
+      try {
+        render(await invoke('get_status'));
+        const auto = await invoke('get_autostart_enabled');
+        document.getElementById('autostart-toggle').checked = !!auto;
+      } catch (_) {}
+    }
+
+    refresh();
+    setInterval(refresh, 5000);
+  </script>
+</body>
+</html>

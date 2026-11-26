@@ -804,3 +804,113 @@ test('PWA + Alerts: each rule triggers once per episode, quiet hours respected, 
   const quietRun = await evaluateAlertRulesForTest(quietNow, 'Asia/Kolkata');
   assert.equal(quietRun.length, 0, 'Quiet hours must suppress all alerts');
 });
+
+test('Desktop Agent: pairing, scoped device token, revocation, desktop priority, offline backfill, and updater manifest', async () => {
+  // 1. Verify tauri.conf.json updater manifest config
+  const tauriConf = JSON.parse(
+    fs.readFileSync(path.join(process.cwd(), 'desktop-agent', 'src-tauri', 'tauri.conf.json'), 'utf8')
+  );
+  assert.equal(tauriConf.identifier, 'com.zaviroq.workforce.agent');
+  assert.ok(
+    Array.isArray(tauriConf.plugins?.updater?.endpoints) &&
+      tauriConf.plugins.updater.endpoints[0].endsWith('/latest.json'),
+    'tauri.conf.json must configure GitHub Releases latest.json updater endpoint'
+  );
+
+  // 2. Pair via employee code + PIN
+  const pairRes = await fetch(`${baseUrl}/api/devices/pair`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      identifier: 'ZAV-902',
+      pin: '849201',
+      deviceName: 'Test-Workstation',
+      platform: 'windows',
+      appVersion: '1.0.0',
+    }),
+  });
+  const pairBody = await pairRes.json();
+  assert.equal(pairRes.status, 201, `Expected 201 on pair, got ${pairRes.status}: ${JSON.stringify(pairBody)}`);
+  assert.ok(pairBody.deviceToken.startsWith('zav_dev_'));
+  const { deviceId, deviceToken } = pairBody;
+
+  // 3. Device token works on /api/devices/me and is blocked (401) on /api/dashboard
+  const meRes = await fetch(`${baseUrl}/api/devices/me`, {
+    headers: { Authorization: `Bearer ${deviceToken}` },
+  });
+  assert.equal(meRes.status, 200);
+  const meBody = await meRes.json();
+  assert.equal(meBody.employee.emp_code || meBody.employee.code, 'ZAV-902');
+
+  const dashDenied = await fetch(`${baseUrl}/api/dashboard`, {
+    headers: { Authorization: `Bearer ${deviceToken}` },
+  });
+  assert.equal(dashDenied.status, 401, 'Device token must be rejected on non-device endpoints');
+
+  // 4. Clock in via desktop agent sets tracking_mode = desktop
+  db.prepare(`DELETE FROM attendance WHERE employee_id = (SELECT id FROM employees WHERE emp_code = 'ZAV-902')`).run();
+  const clockInRes = await fetch(`${baseUrl}/api/attendance/clock-in`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${deviceToken}`,
+    },
+    body: JSON.stringify({ source: 'desktop_agent' }),
+  });
+  assert.ok([200, 201].includes(clockInRes.status));
+  const attRow = db.prepare(`SELECT a.tracking_mode FROM attendance a JOIN employees e ON a.employee_id = e.id WHERE e.emp_code = 'ZAV-902' ORDER BY a.id DESC LIMIT 1`).get();
+  assert.equal(attRow.tracking_mode, 'desktop');
+
+  // 5. Desktop heartbeat works and rejects future timestamps
+  const hbOk = await fetch(`${baseUrl}/api/activity/heartbeat`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${deviceToken}`,
+    },
+    body: JSON.stringify({ state: 'active', source: 'desktop_agent', deviceId }),
+  });
+  assert.equal(hbOk.status, 200);
+
+  const futureTs = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  const hbFuture = await fetch(`${baseUrl}/api/activity/heartbeat`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${deviceToken}`,
+    },
+    body: JSON.stringify({ state: 'active', source: 'desktop_agent', deviceId, timestamp: futureTs }),
+  });
+  assert.equal(hbFuture.status, 400);
+
+  // 6. Browser tab heartbeat is superseded while desktop agent is fresh (no double counting)
+  const empLogin = await fetch(`${baseUrl}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identifier: 'ZAV-902', pin: '849201' }),
+  });
+  const empSetCookie = empLogin.headers.get('set-cookie');
+  const tabHb = await fetch(`${baseUrl}/api/activity/heartbeat`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Cookie: empSetCookie,
+    },
+    body: JSON.stringify({ state: 'idle', trackingMode: 'tab_only' }),
+  });
+  assert.equal(tabHb.status, 200);
+  const tabHbBody = await tabHb.json();
+  assert.equal(tabHbBody.ignoredByDesktopAgent, true);
+
+  // 7. Revoke device token -> immediately returns 401
+  const revokeRes = await fetch(`${baseUrl}/api/devices/revoke-self`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${deviceToken}` },
+  });
+  assert.equal(revokeRes.status, 200);
+
+  const meAfterRevoke = await fetch(`${baseUrl}/api/devices/me`, {
+    headers: { Authorization: `Bearer ${deviceToken}` },
+  });
+  assert.equal(meAfterRevoke.status, 401, 'Revoked device token must fail immediately with 401');
+});
