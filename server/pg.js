@@ -143,6 +143,7 @@ export async function getSettings() {
     lateDeductionEnabled: map.lateDeductionEnabled === 'true',
     lateDaysPerHalfDayLop: Number(map.lateDaysPerHalfDayLop ?? 3),
     overtimePolicy: map.overtimePolicy || 'net_hours',
+    prorateAnnualLeave: map.prorateAnnualLeave !== 'false',
   };
 }
 

@@ -507,7 +507,7 @@ app.get('/api/dashboard', (req, res) => {
 // ========================
 app.post('/api/employees', requireRole('admin', 'manager'), (req, res) => {
   const settings = getSettings();
-  const { name, email, role = 'employee', department, designation, shift_start = settings.shiftStart, shift_end = settings.shiftEnd, joining_date, pin = '1234' } = req.body;
+  const { name, email, role = 'employee', department, designation, shift_start = settings.shiftStart, shift_end = settings.shiftEnd, joining_date } = req.body;
   if (!name?.trim() || !email?.trim() || !department?.trim() || !designation?.trim()) {
     return res.status(400).json({ error: 'Name, email, department, and designation are required.' });
   }
@@ -518,13 +518,21 @@ app.post('/api/employees', requireRole('admin', 'manager'), (req, res) => {
   const avatar_color = palette[nextNum % palette.length];
   const safeJoiningDate = joining_date || getTodayDate();
 
+  let tempPin = '849201';
+  for (let i = 0; i < 30; i++) {
+    const candidate = String(crypto.randomInt(100000, 1000000));
+    if (!validateStrongPin(candidate)) {
+      tempPin = candidate;
+      break;
+    }
+  }
+
   try {
     const info = db.prepare(`
-      INSERT INTO employees (emp_code, name, email, role, department, designation, shift_start, shift_end, status, avatar_color, joining_date, pin)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'offline', ?, ?, ?)
-    `).run(emp_code, name.trim(), email.trim().toLowerCase(), role, department.trim(), designation.trim(), shift_start || settings.shiftStart, shift_end || settings.shiftEnd, avatar_color, safeJoiningDate, hashPin(pin));
+      INSERT INTO employees (emp_code, name, email, role, department, designation, shift_start, shift_end, status, avatar_color, joining_date, pin, must_change_pin)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'offline', ?, ?, ?, 1)
+    `).run(emp_code, name.trim(), email.trim().toLowerCase(), role, department.trim(), designation.trim(), shift_start || settings.shiftStart, shift_end || settings.shiftEnd, avatar_color, safeJoiningDate, hashPin(tempPin));
     const created = db.prepare('SELECT * FROM employees WHERE id = ?').get(info.lastInsertRowid);
-    db.prepare(`INSERT OR IGNORE INTO salary_structures (employee_id) VALUES (?)`).run(created.id);
     writeAuditLog({
       actorId: req.user.id,
       actorName: req.user.name,
@@ -533,7 +541,7 @@ app.post('/api/employees', requireRole('admin', 'manager'), (req, res) => {
       entityId: created.id,
       newValue: { emp_code, name: created.name, role: created.role, department: created.department },
     });
-    res.status(201).json(sanitizeEmployee(created));
+    res.status(201).json({ ...sanitizeEmployee(created), tempPin });
   } catch {
     res.status(409).json({ error: 'Employee email already exists.' });
   }
@@ -923,8 +931,10 @@ app.get('/api/leaves', (req, res) => {
     ORDER BY l.id DESC
   `).all(...(isPrivileged ? [] : [req.user.id]));
 
+  const settings = getSettings();
+  const currentYear = Number(getTodayDate().slice(0, 4));
   const employees = db.prepare(`
-    SELECT id, emp_code, name, department FROM employees
+    SELECT id, emp_code, name, department, COALESCE(joining_date, substr(created_at, 1, 10)) as joining_date FROM employees
     WHERE is_active = 1 ${isPrivileged ? '' : 'AND id = ?'}
     ORDER BY id ASC
   `).all(...(isPrivileged ? [] : [req.user.id]));
@@ -937,6 +947,17 @@ app.get('/api/leaves', (req, res) => {
 
   const balances = employees.map((emp) => {
     const getUsed = (type) => approved.find((a) => a.employee_id === emp.id && a.leave_type === type)?.used || 0;
+    let earnedTotal = 15;
+    if (settings.prorateAnnualLeave !== false && emp.joining_date) {
+      const jy = Number(String(emp.joining_date).slice(0, 4));
+      const jm = Number(String(emp.joining_date).slice(5, 7));
+      if (jy === currentYear && jm >= 1 && jm <= 12) {
+        const remainingMonths = 13 - jm;
+        earnedTotal = Math.floor(((earnedTotal * remainingMonths) / 12) * 2) / 2;
+      } else if (jy > currentYear) {
+        earnedTotal = 0;
+      }
+    }
     return {
       employee_id: emp.id,
       emp_code: emp.emp_code,
@@ -946,7 +967,7 @@ app.get('/api/leaves', (req, res) => {
       casual_used: getUsed('casual'),
       sick_total: 8,
       sick_used: getUsed('sick'),
-      earned_total: 15,
+      earned_total: earnedTotal,
       earned_used: getUsed('earned'),
       unpaid_used: getUsed('unpaid'),
     };
@@ -1115,56 +1136,70 @@ export function buildMonthlyReport(month) {
       .filter((l) => l.employee_id === emp.id && l.leave_type === 'unpaid')
       .reduce((s, l) => s + l.days, 0);
 
-    const sal = salaries.find((s) => s.employee_id === emp.id) || {
-      currency: 'INR',
-      base_monthly_salary: 50000,
-      hra: 15000,
-      transport_allowance: 3000,
-      special_allowance: 7000,
-      pf_deduction: 3600,
-      tax_deduction: 2500,
-      overtime_hourly_rate: 450,
-      working_days_per_month: 22,
-    };
+    const rawSal = salaries.find((s) => s.employee_id === emp.id);
+    let salaryObj = null;
+    if (rawSal) {
+      const sal = {
+        currency: rawSal.currency || 'INR',
+        base_monthly_salary: Number(rawSal.base_monthly_salary ?? 0),
+        hra: Number(rawSal.hra ?? 0),
+        transport_allowance: Number(rawSal.transport_allowance ?? 0),
+        special_allowance: Number(rawSal.special_allowance ?? 0),
+        pf_deduction: Number(rawSal.pf_deduction ?? 0),
+        tax_deduction: Number(rawSal.tax_deduction ?? 0),
+        overtime_hourly_rate: Number(rawSal.overtime_hourly_rate ?? 0),
+        working_days_per_month: Number(rawSal.working_days_per_month ?? 22),
+      };
 
-    const grossSalary = sal.base_monthly_salary + sal.hra + sal.transport_allowance + sal.special_allowance;
-    const perDayRate = grossSalary / Math.max(1, sal.working_days_per_month);
-    const lateLopDays = settings.lateDeductionEnabled
-      ? Math.floor(lateDays / Math.max(1, settings.lateDaysPerHalfDayLop)) * 0.5
-      : 0;
-    const unpaidDeduction = Math.round((absentDays + unpaidLeaveDays + lateLopDays) * perDayRate + halfDays * 0.5 * perDayRate);
-    const overtimePay = Math.round((totalOvertimeSeconds / 3600) * sal.overtime_hourly_rate);
-    const totalDeductions = sal.pf_deduction + sal.tax_deduction + unpaidDeduction;
+      const grossSalary = sal.base_monthly_salary + sal.hra + sal.transport_allowance + sal.special_allowance;
+      const perDayRate = grossSalary / Math.max(1, sal.working_days_per_month);
+      const lateLopDays = settings.lateDeductionEnabled
+        ? Math.floor(lateDays / Math.max(1, settings.lateDaysPerHalfDayLop)) * 0.5
+        : 0;
+      const unpaidDeduction = Math.round((absentDays + unpaidLeaveDays + lateLopDays) * perDayRate + halfDays * 0.5 * perDayRate);
+      const overtimePay = Math.round((totalOvertimeSeconds / 3600) * sal.overtime_hourly_rate);
+      const totalDeductions = sal.pf_deduction + sal.tax_deduction + unpaidDeduction;
 
-    const joiningDate = (emp.joining_date || (emp.created_at ? String(emp.created_at).slice(0, 10) : monthStart)).slice(0, 10);
-    let netSalary = 0;
-    let proratedNet = 0;
+      const joiningDate = (emp.joining_date || (emp.created_at ? String(emp.created_at).slice(0, 10) : monthStart)).slice(0, 10);
+      let netSalary = 0;
+      let proratedNet = 0;
 
-    if (joiningDate <= monthEnd && month <= currentMonth) {
-      const empStart = joiningDate > monthStart ? joiningDate : monthStart;
-      const mtdEnd = month === currentMonth ? todayDate : monthEnd;
-      const mtdCounts = countRangeWorkingAndHolidays(empStart, mtdEnd);
-      const fullCounts = countRangeWorkingAndHolidays(empStart, monthEnd);
+      if (joiningDate <= monthEnd && month <= currentMonth) {
+        const empStart = joiningDate > monthStart ? joiningDate : monthStart;
+        const mtdEnd = month === currentMonth ? todayDate : monthEnd;
+        const mtdCounts = countRangeWorkingAndHolidays(empStart, mtdEnd);
+        const fullCounts = countRangeWorkingAndHolidays(empStart, monthEnd);
 
-      const attendedDays = presentDays + lateDays + halfDays * 0.5;
-      const paidLeaveDays = Math.max(0, leaveDays - unpaidLeaveDays);
-      const paidDaysMtd = attendedDays + paidLeaveDays + mtdCounts.holidays;
+        const attendedDays = presentDays + lateDays + halfDays * 0.5;
+        const paidLeaveDays = Math.max(0, leaveDays - unpaidLeaveDays);
+        const paidDaysMtd = attendedDays + paidLeaveDays + mtdCounts.holidays;
 
-      const employedMonthRatio = Math.min(1, (fullCounts.working + fullCounts.holidays) / Math.max(1, sal.working_days_per_month));
-      const mtdRatio = Math.min(1, paidDaysMtd / Math.max(1, sal.working_days_per_month));
+        const employedMonthRatio = Math.min(1, (fullCounts.working + fullCounts.holidays) / Math.max(1, sal.working_days_per_month));
+        const mtdRatio = Math.min(1, paidDaysMtd / Math.max(1, sal.working_days_per_month));
 
-      const employedGrossProj = empStart > monthStart
-        ? Math.min(grossSalary, Math.round(perDayRate * (fullCounts.working + fullCounts.holidays)))
-        : grossSalary;
-      const projFixedDed = Math.round((sal.pf_deduction + sal.tax_deduction) * employedMonthRatio);
-      netSalary = Math.max(0, Math.round(employedGrossProj + overtimePay - projFixedDed - unpaidDeduction));
+        const employedGrossProj = empStart > monthStart
+          ? Math.min(grossSalary, Math.round(perDayRate * (fullCounts.working + fullCounts.holidays)))
+          : grossSalary;
+        const projFixedDed = Math.round((sal.pf_deduction + sal.tax_deduction) * employedMonthRatio);
+        netSalary = Math.max(0, Math.round(employedGrossProj + overtimePay - projFixedDed - unpaidDeduction));
 
-      const proratedGross = Math.min(grossSalary, Math.round(perDayRate * paidDaysMtd));
-      const mtdFixedDed = Math.round((sal.pf_deduction + sal.tax_deduction) * mtdRatio);
-      const lateLopDed = Math.round(lateLopDays * perDayRate);
-      proratedNet = paidDaysMtd <= 0 && overtimePay <= 0
-        ? 0
-        : Math.max(0, Math.round(proratedGross + overtimePay - mtdFixedDed - lateLopDed));
+        const proratedGross = Math.min(grossSalary, Math.round(perDayRate * paidDaysMtd));
+        const mtdFixedDed = Math.round((sal.pf_deduction + sal.tax_deduction) * mtdRatio);
+        const lateLopDed = Math.round(lateLopDays * perDayRate);
+        proratedNet = paidDaysMtd <= 0 && overtimePay <= 0
+          ? 0
+          : Math.max(0, Math.round(proratedGross + overtimePay - mtdFixedDed - lateLopDed));
+      }
+
+      salaryObj = {
+        ...sal,
+        gross_salary: grossSalary,
+        overtime_pay: overtimePay,
+        unpaid_deduction: unpaidDeduction,
+        total_deductions: totalDeductions,
+        net_salary: netSalary,
+        prorated_net_salary: proratedNet,
+      };
     }
 
     return {
@@ -1186,15 +1221,8 @@ export function buildMonthlyReport(month) {
       total_overtime_seconds: totalOvertimeSeconds,
       tasks_completed: tasksCompleted,
       tasks_pending: tasksPending,
-      salary: {
-        ...sal,
-        gross_salary: grossSalary,
-        overtime_pay: overtimePay,
-        unpaid_deduction: unpaidDeduction,
-        total_deductions: totalDeductions,
-        net_salary: netSalary,
-        prorated_net_salary: proratedNet,
-      },
+      salary_set: Boolean(rawSal),
+      salary: salaryObj,
     };
   });
 
@@ -1249,12 +1277,12 @@ app.get('/api/export/me', (req, res) => {
       (r.total_active_seconds / 3600).toFixed(2),
       (r.total_idle_seconds / 3600).toFixed(2),
       (r.total_overtime_seconds / 3600).toFixed(2),
-      r.salary.gross_salary,
-      r.salary.overtime_pay,
-      r.salary.total_deductions,
-      r.salary.net_salary,
-      r.salary.prorated_net_salary,
-      r.salary.currency,
+      r.salary?.gross_salary ?? 'Salary not set',
+      r.salary?.overtime_pay ?? 0,
+      r.salary?.total_deductions ?? 0,
+      r.salary?.net_salary ?? 'Salary not set',
+      r.salary?.prorated_net_salary ?? 'Salary not set',
+      r.salary?.currency ?? 'INR',
     ].map(csvEscape).join(',')),
   ];
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -1300,7 +1328,7 @@ app.get('/api/export/monthly', requireRole('admin', 'manager'), (req, res) => {
   ];
   const lines = [
     header.join(','),
-    ...report.rows.map((r) => [
+    ...report.rows.filter((r) => r.salary_set && r.salary).map((r) => [
       r.emp_code,
       r.name,
       r.department,
@@ -1312,12 +1340,12 @@ app.get('/api/export/monthly', requireRole('admin', 'manager'), (req, res) => {
       (r.total_active_seconds / 3600).toFixed(2),
       (r.total_idle_seconds / 3600).toFixed(2),
       (r.total_overtime_seconds / 3600).toFixed(2),
-      r.salary.gross_salary,
-      r.salary.overtime_pay,
-      r.salary.total_deductions,
-      r.salary.net_salary,
-      r.salary.prorated_net_salary,
-      r.salary.currency,
+      r.salary?.gross_salary ?? 'Salary not set',
+      r.salary?.overtime_pay ?? 0,
+      r.salary?.total_deductions ?? 0,
+      r.salary?.net_salary ?? 'Salary not set',
+      r.salary?.prorated_net_salary ?? 'Salary not set',
+      r.salary?.currency ?? 'INR',
     ].map(csvEscape).join(',')),
   ];
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -1582,7 +1610,7 @@ app.put('/api/settings', requireRole('admin', 'manager'), (req, res) => {
     'shiftStart', 'shiftEnd', 'lateGraceMinutes', 'lunchBreak', 'lunchMinutes',
     'teaBreakAfter', 'teaMinutes', 'totalBreakMinutes', 'netWorkHours',
     'idleThresholdSeconds', 'autoClockOutBufferMinutes', 'afterHoursClockInMode', 'weekendDays',
-    'lateDeductionEnabled', 'lateDaysPerHalfDayLop', 'overtimePolicy',
+    'lateDeductionEnabled', 'lateDaysPerHalfDayLop', 'overtimePolicy', 'prorateAnnualLeave',
   ];
   const upsert = db.prepare(`INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`);
   for (const key of allowedKeys) {

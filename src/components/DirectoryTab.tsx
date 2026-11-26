@@ -1,8 +1,26 @@
 import React, { useEffect, useState } from 'react';
-import { UserPlus, Megaphone, Mail, Clock, Search, Edit3, X } from 'lucide-react';
+import { UserPlus, Megaphone, Mail, Clock, Search, Edit3, X, Copy, KeyRound, RefreshCw } from 'lucide-react';
 import type { Employee, ViewMode } from '../types';
 import { getInitials } from '../utils/format';
 import { LiveStatusBadge } from './StatusBadge';
+
+function validatePinClient(pin: string): string | null {
+  const s = pin.trim();
+  if (!/^\d{6}$/.test(s)) return 'PIN must be exactly 6 digits.';
+  if (/^(\d)\1{5}$/.test(s)) return 'PIN cannot be all repeated digits.';
+  if ('01234567890123456789'.includes(s) || '98765432109876543210'.includes(s)) {
+    return 'PIN cannot be a sequential pattern.';
+  }
+  return null;
+}
+
+function generateStrongPinClient(): string {
+  for (let i = 0; i < 30; i++) {
+    const c = String(Math.floor(100000 + Math.random() * 900000));
+    if (!validatePinClient(c)) return c;
+  }
+  return '849201';
+}
 
 interface DirectoryTabProps {
   employees: Employee[];
@@ -18,7 +36,7 @@ interface DirectoryTabProps {
     shift_start: string;
     shift_end: string;
     joining_date?: string;
-  }) => Promise<void>;
+  }) => Promise<{ emp_code: string; name: string; tempPin?: string } | null>;
   onPostAnnouncement: (payload: { title: string; message: string; priority: 'normal' | 'important' }) => Promise<void>;
 }
 
@@ -37,6 +55,14 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
   const [showAnnModal, setShowAnnModal] = useState(false);
   const [editingEmp, setEditingEmp] = useState<Employee | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [tempPinInfo, setTempPinInfo] = useState<{ emp_code: string; name: string; tempPin: string } | null>(null);
+  const [copiedTempPin, setCopiedTempPin] = useState(false);
+
+  const [resetPinEmp, setResetPinEmp] = useState<Employee | null>(null);
+  const [resetPinVal, setResetPinVal] = useState('');
+  const [resetPinConfirm, setResetPinConfirm] = useState('');
+  const [resetPinErr, setResetPinErr] = useState<string | null>(null);
+  const [resetPinSaving, setResetPinSaving] = useState(false);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -79,7 +105,7 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
 
   const handleEmpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await onAddEmployee({
+    const created = await onAddEmployee({
       name,
       email,
       role,
@@ -94,6 +120,10 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
     setDesignation('');
     setJoiningDate('');
     setShowEmpModal(false);
+    if (created?.tempPin) {
+      setCopiedTempPin(false);
+      setTempPinInfo({ emp_code: created.emp_code, name: created.name, tempPin: created.tempPin });
+    }
   };
 
   const handleEditSave = async (e: React.FormEvent) => {
@@ -250,16 +280,11 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
                       <Edit3 className="h-3 w-3" /> Edit
                     </button>
                     <button
-                      onClick={async () => {
-                        const newPin = window.prompt(`Enter new 6-digit non-trivial PIN for ${emp.name}:`, '');
-                        if (!newPin) return;
-                        const r = await fetch(`/api/employees/${emp.id}/reset-pin`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ newPin: newPin.trim() }),
-                        });
-                        const j = await r.json();
-                        setActionMsg(r.ok ? `PIN reset for ${emp.name}.` : j.error || 'Failed to reset PIN');
+                      onClick={() => {
+                        setResetPinEmp(emp);
+                        setResetPinVal('');
+                        setResetPinConfirm('');
+                        setResetPinErr(null);
                       }}
                       className="flex-1 rounded-xl border border-slate-700 bg-slate-800 hover:bg-slate-700 py-1.5 text-[11px] font-semibold text-slate-200 cursor-pointer"
                     >
@@ -453,6 +478,152 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setShowAnnModal(false)} className="rounded-xl border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-300">Cancel</button>
                 <button type="submit" className="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-4 py-2 text-xs font-semibold text-white cursor-pointer">Publish</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Copy-Once Onboarding PIN Modal */}
+      {tempPinInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-emerald-500/40 bg-slate-900 p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <KeyRound className="h-5 w-5 text-emerald-400" />
+                Temporary Onboarding PIN
+              </h2>
+              <button onClick={() => setTempPinInfo(null)} className="text-slate-400 hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-xs text-slate-300">
+              Employee <strong>{tempPinInfo.name}</strong> ({tempPinInfo.emp_code}) created. Share this with the employee; it won&apos;t be shown again. They will be forced to set a new PIN on first login.
+            </p>
+            <div className="flex items-center justify-between rounded-xl border border-slate-700 bg-slate-950 px-4 py-3">
+              <span className="font-mono-num text-2xl font-bold tracking-widest text-emerald-300">
+                {tempPinInfo.tempPin}
+              </span>
+              <button
+                type="button"
+                onClick={async () => {
+                  await navigator.clipboard?.writeText(tempPinInfo.tempPin).catch(() => {});
+                  setCopiedTempPin(true);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white cursor-pointer"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                {copiedTempPin ? 'Copied!' : 'Copy PIN'}
+              </button>
+            </div>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setTempPinInfo(null)}
+                className="rounded-xl bg-slate-800 hover:bg-slate-700 px-4 py-2 text-xs font-semibold text-white cursor-pointer"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset PIN Modal */}
+      {resetPinEmp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white">Reset PIN — {resetPinEmp.name}</h2>
+              <button onClick={() => setResetPinEmp(null)} className="text-slate-400 hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const err = validatePinClient(resetPinVal);
+                if (err) {
+                  setResetPinErr(err);
+                  return;
+                }
+                if (resetPinVal.trim() !== resetPinConfirm.trim()) {
+                  setResetPinErr('PINs do not match.');
+                  return;
+                }
+                setResetPinSaving(true);
+                setResetPinErr(null);
+                try {
+                  const r = await fetch(`/api/employees/${resetPinEmp.id}/reset-pin`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ newPin: resetPinVal.trim() }),
+                  });
+                  const j = await r.json();
+                  if (!r.ok) {
+                    setResetPinErr(j.error || 'Failed to reset PIN');
+                    return;
+                  }
+                  setActionMsg(`PIN reset for ${resetPinEmp.name}.`);
+                  setResetPinEmp(null);
+                } finally {
+                  setResetPinSaving(false);
+                }
+              }}
+              className="space-y-3"
+            >
+              <div className="flex items-center justify-between">
+                <label className="text-xs text-slate-400">New 6-digit PIN</label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const gen = generateStrongPinClient();
+                    setResetPinVal(gen);
+                    setResetPinConfirm(gen);
+                    setResetPinErr(null);
+                  }}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-300 hover:text-indigo-200 cursor-pointer"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  Auto-generate
+                </button>
+              </div>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                required
+                placeholder="Enter 6-digit PIN"
+                value={resetPinVal}
+                onChange={(e) => setResetPinVal(e.target.value)}
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+              />
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                required
+                placeholder="Confirm 6-digit PIN"
+                value={resetPinConfirm}
+                onChange={(e) => setResetPinConfirm(e.target.value)}
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+              />
+              {resetPinErr && <div className="text-xs text-rose-300">{resetPinErr}</div>}
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setResetPinEmp(null)}
+                  className="rounded-xl border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={resetPinSaving}
+                  className="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-4 py-2 text-xs font-semibold text-white cursor-pointer"
+                >
+                  {resetPinSaving ? 'Saving...' : 'Save PIN'}
+                </button>
               </div>
             </form>
           </div>

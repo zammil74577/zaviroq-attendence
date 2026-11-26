@@ -7,6 +7,7 @@ import { LiveStatusBadge } from './StatusBadge';
 interface IdleTrackerTabProps {
   viewMode: 'admin' | 'employee';
   demoMode?: boolean;
+  isReadOnlyPreview?: boolean;
   currentUser: Employee | null;
   employees: Employee[];
   logs: ActivityLog[];
@@ -22,6 +23,7 @@ interface IdleTrackerTabProps {
 export const IdleTrackerTab: React.FC<IdleTrackerTabProps> = ({
   viewMode,
   demoMode = false,
+  isReadOnlyPreview = false,
   currentUser,
   employees,
   logs,
@@ -82,36 +84,38 @@ export const IdleTrackerTab: React.FC<IdleTrackerTabProps> = ({
               </p>
             </div>
 
-            <div className="flex items-center gap-2.5 flex-wrap">
-              {!isClockedIn ? (
-                <button
-                  onClick={onClockIn}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 px-4 py-2 text-xs font-semibold text-white cursor-pointer"
-                >
-                  <Play className="h-3.5 w-3.5 fill-current" />
-                  Clock In & Start Tracker
-                </button>
-              ) : (
-                <>
+            {!isReadOnlyPreview && (
+              <div className="flex items-center gap-2.5 flex-wrap">
+                {!isClockedIn ? (
                   <button
-                    onClick={onToggleBreak}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-sky-500/40 bg-sky-500/15 hover:bg-sky-500/25 px-3.5 py-2 text-xs font-semibold text-sky-200 cursor-pointer"
+                    onClick={onClockIn}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 px-4 py-2 text-xs font-semibold text-white cursor-pointer"
                   >
-                    <Coffee className="h-3.5 w-3.5" />
-                    {liveState === 'break' ? 'End Break' : 'Start Break'}
+                    <Play className="h-3.5 w-3.5 fill-current" />
+                    Clock In & Start Tracker
                   </button>
-                  {demoMode && viewMode === 'admin' && (
+                ) : (
+                  <>
                     <button
-                      onClick={onForceIdle}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 px-3.5 py-2 text-xs font-semibold text-amber-200 cursor-pointer"
+                      onClick={onToggleBreak}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-sky-500/40 bg-sky-500/15 hover:bg-sky-500/25 px-3.5 py-2 text-xs font-semibold text-sky-200 cursor-pointer"
                     >
-                      <PauseCircle className="h-3.5 w-3.5" />
-                      Test Idle State
+                      <Coffee className="h-3.5 w-3.5" />
+                      {liveState === 'break' ? 'End Break' : 'Start Break'}
                     </button>
-                  )}
-                </>
-              )}
-            </div>
+                    {demoMode && viewMode === 'admin' && (
+                      <button
+                        onClick={onForceIdle}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 px-3.5 py-2 text-xs font-semibold text-amber-200 cursor-pointer"
+                      >
+                        <PauseCircle className="h-3.5 w-3.5" />
+                        Test Idle State
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -160,12 +164,18 @@ export const IdleTrackerTab: React.FC<IdleTrackerTabProps> = ({
                       <LiveStatusBadge status={emp.status} />
                     </div>
                     <span className="font-mono-num text-slate-300">
-                      {formatHM(emp.active_seconds)} active • {formatHM(emp.idle_seconds)} idle ({prod}%)
+                      {formatHM(emp.active_seconds)} active • {formatHM(emp.idle_seconds)} idle ({prod === null ? '—' : `${prod}%`})
                     </span>
                   </div>
                   <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-800 flex">
-                    <div className="bg-emerald-500 h-full transition-all" style={{ width: `${prod}%` }} />
-                    <div className="bg-amber-500 h-full transition-all" style={{ width: `${100 - prod}%` }} />
+                    {prod === null ? (
+                      <div className="bg-slate-600 h-full w-full" />
+                    ) : (
+                      <>
+                        <div className="bg-emerald-500 h-full transition-all" style={{ width: `${prod}%` }} />
+                        <div className="bg-amber-500 h-full transition-all" style={{ width: `${100 - prod}%` }} />
+                      </>
+                    )}
                   </div>
                 </div>
               );

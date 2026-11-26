@@ -118,6 +118,15 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({ onSaved }) => {
               />
               Enable Late Deduction Policy (every {settings.lateDaysPerHalfDayLop ?? 3} late days = 0.5 day LOP)
             </label>
+            <label className="flex items-center gap-2.5 text-xs text-slate-200 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={settings.prorateAnnualLeave !== false}
+                onChange={(e) => setSettings({ ...settings, prorateAnnualLeave: e.target.checked })}
+                className="rounded border-slate-700 bg-slate-950"
+              />
+              Prorate annual leave for joiners (annual × remaining months / 12, rounded down to 0.5)
+            </label>
           </div>
 
           <button

@@ -513,6 +513,23 @@ test('Production fixes: joining_date proration (joined 25th, 1 day attended -> ~
   assert.equal(createRes.status, 201);
   const joiner = await createRes.json();
 
+  // Set salary for joiner (new employees no longer get a default salary)
+  const salRes = await fetch(`${baseUrl}/api/salaries/${joiner.id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Cookie: freshAdminCookie },
+    body: JSON.stringify({
+      base_monthly_salary: 50000,
+      hra: 15000,
+      transport_allowance: 3000,
+      special_allowance: 7000,
+      pf_deduction: 3600,
+      tax_deduction: 2500,
+      overtime_hourly_rate: 450,
+      working_days_per_month: 22,
+    }),
+  });
+  assert.equal(salRes.status, 200);
+
   // Record 1 attended day on the 25th
   db.prepare(`INSERT INTO attendance (employee_id, date, clock_in, status) VALUES (?, ?, ?, 'present')`)
     .run(joiner.id, joinDay25, `${joinDay25}T04:00:00.000Z`);
@@ -574,4 +591,68 @@ test('Production fixes: deactivation auto clock-out (Deactivated) & reactivation
   assert.equal(reactRes.status, 200);
   const audit = db.prepare(`SELECT * FROM audit_logs WHERE action = 'REACTIVATE_EMPLOYEE' AND entity_id = ?`).get(String(emp.id));
   assert.ok(audit, 'REACTIVATE_EMPLOYEE audit log created');
+});
+
+test('Round 2: create employee -> no salary, temp PIN shown once, first-login PIN change, leave proration & /reports/me', async () => {
+  const { createSessionToken, SESSION_COOKIE_NAME } = await import('./auth.js');
+  const freshAdminCookie = `${SESSION_COOKIE_NAME}=${createSessionToken(1)}`;
+  const month = new Date().toISOString().slice(0, 7);
+  const currentYear = month.slice(0, 4);
+  const joinNov = `${currentYear}-11-01`;
+
+  // 1. Create employee -> returns tempPin once, must_change_pin = 1, NO salary row
+  const createRes = await fetch(`${baseUrl}/api/employees`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: freshAdminCookie },
+    body: JSON.stringify({
+      name: 'New Onboard',
+      email: 'onboard@zaviroq.com',
+      department: 'Product',
+      designation: 'Designer',
+      joining_date: joinNov,
+    }),
+  });
+  assert.equal(createRes.status, 201);
+  const created = await createRes.json();
+  assert.match(String(created.tempPin), /^\d{6}$/, 'tempPin is 6 digits');
+  assert.equal(created.must_change_pin, 1);
+
+  const salRow = db.prepare(`SELECT * FROM salary_structures WHERE employee_id = ?`).get(created.id);
+  assert.equal(salRow, undefined, 'No default salary created for new employee');
+
+  // 2. First login with tempPin -> must_change_pin is true, then change PIN
+  const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identifier: created.emp_code, pin: created.tempPin }),
+  });
+  assert.equal(loginRes.status, 200);
+  const loginJson = await loginRes.json();
+  assert.equal(loginJson.employee.must_change_pin, 1);
+  const newEmpCookie = loginRes.headers.get('set-cookie').split(';')[0];
+
+  const changeRes = await fetch(`${baseUrl}/api/auth/change-pin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: newEmpCookie },
+    body: JSON.stringify({ newPin: '739182' }),
+  });
+  assert.equal(changeRes.status, 200);
+
+  // 3. /api/reports/me always returns a row with salary_set: false and salary: null
+  const meRepRes = await fetch(`${baseUrl}/api/reports/me?month=${month}`, {
+    headers: { Cookie: newEmpCookie },
+  });
+  assert.equal(meRepRes.status, 200);
+  const meRep = await meRepRes.json();
+  assert.equal(meRep.rows.length, 1);
+  assert.equal(meRep.rows[0].salary_set, false);
+  assert.equal(meRep.rows[0].salary, null);
+
+  // 4. Leave balance proration for Nov joiner: 15 * 2 / 12 = 2.5
+  const leaveRes = await fetch(`${baseUrl}/api/leaves`, {
+    headers: { Cookie: newEmpCookie },
+  });
+  assert.equal(leaveRes.status, 200);
+  const leaveJson = await leaveRes.json();
+  assert.equal(leaveJson.balances[0].earned_total, 2.5);
 });

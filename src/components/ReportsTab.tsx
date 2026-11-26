@@ -186,6 +186,13 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
         <div className="space-y-5">
           {myMonthlyOnly && monthlyRows[0] && (() => {
             const s = monthlyRows[0].salary;
+            if (monthlyRows[0].salary_set === false || !s) {
+              return (
+                <div className="rounded-xl border border-slate-800 bg-slate-900/75 p-4 text-xs text-slate-400">
+                  Salary not set — contact your administrator to configure your compensation structure.
+                </div>
+              );
+            }
             const allowances = s.hra + s.transport_allowance + s.special_allowance;
             return (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -268,15 +275,21 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                     {r.tasks_completed} / {r.tasks_completed + r.tasks_pending}
                   </td>
                   <td className="px-3.5 py-3 font-mono-num text-xs font-bold text-emerald-300 whitespace-nowrap">
-                    <div>
-                      {monthly?.isCurrentMonth && r.salary.prorated_net_salary !== undefined
-                        ? `MTD: ${formatCurrency(r.salary.prorated_net_salary, r.salary.currency)}`
-                        : formatCurrency(r.salary.net_salary, r.salary.currency)}
-                    </div>
-                    {monthly?.isCurrentMonth && (
-                      <div className="text-[10px] font-normal text-slate-400">
-                        Proj: {formatCurrency(r.salary.net_salary, r.salary.currency)}
-                      </div>
+                    {r.salary_set === false || !r.salary ? (
+                      <span className="font-sans font-normal italic text-slate-400">Salary not set</span>
+                    ) : (
+                      <>
+                        <div>
+                          {monthly?.isCurrentMonth && r.salary.prorated_net_salary !== undefined
+                            ? `MTD: ${formatCurrency(r.salary.prorated_net_salary, r.salary.currency)}`
+                            : formatCurrency(r.salary.net_salary, r.salary.currency)}
+                        </div>
+                        {monthly?.isCurrentMonth && (
+                          <div className="text-[10px] font-normal text-slate-400">
+                            Proj: {formatCurrency(r.salary.net_salary, r.salary.currency)}
+                          </div>
+                        )}
+                      </>
                     )}
                   </td>
                 </tr>

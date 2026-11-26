@@ -306,6 +306,7 @@ export function runMigrations() {
     lateDeductionEnabled: 'false',
     lateDaysPerHalfDayLop: '3',
     overtimePolicy: 'net_hours',
+    prorateAnnualLeave: 'true',
   };
   const upsertSetting = db.prepare(`INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)`);
   for (const [k, v] of Object.entries(defaultSettings)) {
@@ -476,6 +477,7 @@ export function getSettings() {
     lateDeductionEnabled: map.lateDeductionEnabled === 'true',
     lateDaysPerHalfDayLop: Number(map.lateDaysPerHalfDayLop ?? 3),
     overtimePolicy: map.overtimePolicy || 'net_hours',
+    prorateAnnualLeave: map.prorateAnnualLeave !== 'false',
   };
 }
 

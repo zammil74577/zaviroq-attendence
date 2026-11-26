@@ -240,12 +240,20 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({
                       <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-800">
                         <div
                           className={`h-full rounded-full ${
-                            prod >= 85 ? 'bg-emerald-500' : prod >= 70 ? 'bg-amber-500' : 'bg-rose-500'
+                            prod === null
+                              ? 'bg-slate-600'
+                              : prod >= 85
+                              ? 'bg-emerald-500'
+                              : prod >= 70
+                              ? 'bg-amber-500'
+                              : 'bg-rose-500'
                           }`}
-                          style={{ width: `${prod}%` }}
+                          style={{ width: `${prod ?? 100}%` }}
                         />
                       </div>
-                      <span className="font-mono-num text-xs font-semibold text-slate-200">{prod}%</span>
+                      <span className="font-mono-num text-xs font-semibold text-slate-200">
+                        {prod === null ? '—' : `${prod}%`}
+                      </span>
                     </div>
                   </td>
                   {viewMode === 'admin' && (

@@ -49,7 +49,7 @@ export const MascotChatbot: React.FC<MascotChatbotProps> = ({
     autoMood = 'break';
   } else if (liveState === 'idle') {
     autoMood = 'sleepy';
-  } else if (myOverdue.length > 0 || productivity < 70) {
+  } else if (myOverdue.length > 0 || (productivity !== null && productivity < 70)) {
     autoMood = 'angry';
   } else {
     autoMood = 'happy';

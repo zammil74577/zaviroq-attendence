@@ -43,7 +43,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const teamProductivity = calcProductivity(summary.totalActiveSeconds, summary.totalIdleSeconds);
   const myProductivity = currentUser
     ? calcProductivity(currentUser.active_seconds, currentUser.idle_seconds)
-    : 100;
+    : null;
 
   return (
     <div className="space-y-6">
@@ -127,7 +127,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             />
             <KpiCard
               title="Focus Efficiency"
-              value={`${myProductivity}%`}
+              value={myProductivity === null ? '—' : `${myProductivity}%`}
               sub="Active time vs total desk time"
               icon={<Zap className="h-5 w-5 text-indigo-400" />}
               accent="indigo"
@@ -158,7 +158,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
             />
             <KpiCard
               title="Org Productivity"
-              value={`${teamProductivity}%`}
+              value={teamProductivity === null ? '—' : `${teamProductivity}%`}
               sub={`${formatHM(summary.totalActiveSeconds)} active vs ${formatHM(summary.totalIdleSeconds)} idle`}
               icon={<CheckCircle2 className="h-5 w-5 text-indigo-400" />}
               accent="indigo"
@@ -193,7 +193,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               {(isEmployeeMode ? [currentUser] : employees).map(
                 (emp) => {
                   const total = emp.active_seconds + emp.idle_seconds;
-                  const activePct = total > 0 ? Math.round((emp.active_seconds / total) * 100) : 100;
+                  const activePct = total > 0 ? Math.round((emp.active_seconds / total) * 100) : null;
                   return (
                     <div
                       key={emp.id}
@@ -237,9 +237,15 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                       <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
                         <div
                           className={`h-full rounded-full transition-all ${
-                            activePct >= 85 ? 'bg-emerald-500' : activePct >= 70 ? 'bg-amber-500' : 'bg-rose-500'
+                            activePct === null
+                              ? 'bg-slate-600'
+                              : activePct >= 85
+                              ? 'bg-emerald-500'
+                              : activePct >= 70
+                              ? 'bg-amber-500'
+                              : 'bg-rose-500'
                           }`}
-                          style={{ width: `${activePct}%` }}
+                          style={{ width: `${activePct ?? 100}%` }}
                         />
                       </div>
                     </div>
@@ -324,10 +330,16 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                 );
               })}
 
-              {pendingOrOverdue.length === 0 && (
+              {scopedTasks.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-slate-800 p-6 text-center text-sm text-slate-400">
-                  All assigned tasks are completed! Great momentum.
+                  No tasks assigned yet
                 </div>
+              ) : (
+                completedCount > 0 && pendingOrOverdue.length === 0 && (
+                  <div className="rounded-xl border border-dashed border-slate-800 p-6 text-center text-sm text-slate-400">
+                    All assigned tasks are completed! Great momentum.
+                  </div>
+                )
               )}
             </div>
           </div>

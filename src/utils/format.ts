@@ -30,9 +30,9 @@ export function formatRelativeTime(iso: string | null): string {
   return `${Math.floor(diffSec / 86400)}d ago`;
 }
 
-export function calcProductivity(activeSeconds: number, idleSeconds: number): number {
+export function calcProductivity(activeSeconds: number, idleSeconds: number): number | null {
   const total = activeSeconds + idleSeconds;
-  if (total <= 0) return 100;
+  if (total <= 0) return null;
   return Math.round((activeSeconds / total) * 100);
 }
 

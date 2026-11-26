@@ -124,6 +124,7 @@ export function App() {
   const currentUser =
     data?.employees.find((e) => e.id === selectedUserId) || data?.employees[0] || null;
   const isClockedIn = Boolean(currentUser?.clock_in && !currentUser?.clock_out);
+  const isReadOnlyPreview = Boolean(isMasterAdmin && viewMode === 'employee');
 
   const {
     liveState,
@@ -135,7 +136,7 @@ export function App() {
     claimActiveTab,
   } = useIdleDetector({
     employeeId: currentUser?.id ?? null,
-    isClockedIn,
+    isClockedIn: isReadOnlyPreview ? false : isClockedIn,
     initialStatus: currentUser?.status ?? 'offline',
     idleThresholdSeconds,
     onSync: () => fetchDashboard(true),
@@ -237,7 +238,7 @@ export function App() {
     shift_start: string;
     shift_end: string;
     joining_date?: string;
-  }) => {
+  }): Promise<{ emp_code: string; name: string; tempPin?: string } | null> => {
     const res = await fetch('/api/employees', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -246,9 +247,11 @@ export function App() {
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       setError(err.error || 'Failed to add employee');
-      return;
+      return null;
     }
+    const created = await res.json();
     await fetchDashboard();
+    return created;
   };
 
   const handlePostAnnouncement = async (payload: {
@@ -338,6 +341,10 @@ export function App() {
       ).length
     : 0;
 
+  const idleCount = viewMode === 'employee'
+    ? (currentUser?.status === 'idle' ? 1 : 0)
+    : (data?.summary.idleNowCount || 0);
+
   return (
     <div className="min-h-screen flex bg-slate-950 text-slate-100">
       <Sidebar
@@ -345,7 +352,7 @@ export function App() {
         onSelectTab={setActiveTab}
         viewMode={viewMode}
         pendingCount={pendingCount}
-        idleCount={data?.summary.idleNowCount || 0}
+        idleCount={idleCount}
         isOpenMobile={mobileMenuOpen}
         onCloseMobile={() => setMobileMenuOpen(false)}
       />
@@ -357,11 +364,15 @@ export function App() {
           onChangeViewMode={(m) => {
             if (isLockedEmployee) return;
             setViewMode(m);
+            if (m === 'admin' && authUser) {
+              setSelectedUserId(authUser.id);
+            }
             if (m === 'employee' && (activeTab === 'directory' || activeTab === 'salary')) {
               setActiveTab('overview');
             }
           }}
           isLockedEmployee={isLockedEmployee}
+          isReadOnlyPreview={isReadOnlyPreview}
           employees={data?.employees || []}
           currentUser={currentUser}
           onSelectUser={setSelectedUserId}
@@ -378,7 +389,12 @@ export function App() {
         />
 
         <main className="flex-1 p-4 sm:p-6 pb-24 max-w-[1600px] w-full mx-auto space-y-5">
-          {viewMode === 'employee' && (
+          {isReadOnlyPreview && currentUser && (
+            <div className="rounded-xl border border-amber-500/40 bg-amber-950/40 px-4 py-2 text-xs text-amber-200 flex items-center justify-between gap-2">
+              <span>Previewing as <strong>{currentUser.name}</strong> — read-only</span>
+            </div>
+          )}
+          {viewMode === 'employee' && !isReadOnlyPreview && (
             <div className="rounded-xl border border-slate-800 bg-slate-900/80 px-4 py-2 text-xs text-slate-300 flex items-center justify-between gap-2">
               <span>Keep Zaviroq open in a tab while working.</span>
             </div>
@@ -460,6 +476,7 @@ export function App() {
             <IdleTrackerTab
               viewMode={viewMode}
               demoMode={demoMode}
+              isReadOnlyPreview={isReadOnlyPreview}
               currentUser={currentUser}
               employees={data.employees}
               logs={data.logs}

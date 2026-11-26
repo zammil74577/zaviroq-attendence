@@ -106,14 +106,15 @@ export interface MonthlyReportRow {
   total_overtime_seconds: number;
   tasks_completed: number;
   tasks_pending: number;
-  salary: SalaryStructure & {
+  salary_set?: boolean;
+  salary: (SalaryStructure & {
     gross_salary: number;
     overtime_pay: number;
     unpaid_deduction: number;
     total_deductions: number;
     net_salary: number;
     prorated_net_salary?: number;
-  };
+  }) | null;
 }
 
 export interface MonthlyReportData {
@@ -242,6 +243,7 @@ export interface OfficeSchedule {
   lateDeductionEnabled?: boolean;
   lateDaysPerHalfDayLop?: number;
   overtimePolicy?: string;
+  prorateAnnualLeave?: boolean;
 }
 
 export interface AuditLogEntry {

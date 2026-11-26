@@ -19,6 +19,7 @@ interface TopBarProps {
   activeTab: TabId;
   onChangeViewMode: (mode: ViewMode) => void;
   isLockedEmployee?: boolean;
+  isReadOnlyPreview?: boolean;
   employees: Employee[];
   currentUser: Employee | null;
   onSelectUser: (id: number) => void;
@@ -39,6 +40,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   activeTab,
   onChangeViewMode,
   isLockedEmployee = false,
+  isReadOnlyPreview = false,
   employees,
   currentUser,
   onSelectUser,
@@ -186,18 +188,19 @@ export const TopBar: React.FC<TopBarProps> = ({
             <span>{clockText}</span>
           </div>
 
-          {!isClockedIn ? (
-            <button
-              onClick={onClockIn}
-              disabled={clockActionPending}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors cursor-pointer"
-            >
-              <Play className="h-3.5 w-3.5 fill-current" />
-              {clockActionPending ? 'Clocking In...' : 'Clock In'}
-            </button>
-          ) : (
-            <>
+          {!isReadOnlyPreview && (
+            !isClockedIn ? (
               <button
+                onClick={onClockIn}
+                disabled={clockActionPending}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors cursor-pointer"
+              >
+                <Play className="h-3.5 w-3.5 fill-current" />
+                {clockActionPending ? 'Clocking In...' : 'Clock In'}
+              </button>
+            ) : (
+              <>
+                <button
                 onClick={onToggleBreak}
                 className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
                   liveState === 'break'
@@ -216,6 +219,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                 Clock Out
               </button>
             </>
+            )
           )}
 
           {viewMode === 'admin' && (

@@ -226,7 +226,8 @@ INSERT INTO settings (key, value) VALUES
   ('weekendDays', '[0,6]'),
   ('lateDeductionEnabled', 'false'),
   ('lateDaysPerHalfDayLop', '3'),
-  ('overtimePolicy', 'net_hours')
+  ('overtimePolicy', 'net_hours'),
+  ('prorateAnnualLeave', 'true')
 ON CONFLICT (key) DO NOTHING;
 
 -- Enable Row Level Security (RLS) on ALL tables with NO public policies.

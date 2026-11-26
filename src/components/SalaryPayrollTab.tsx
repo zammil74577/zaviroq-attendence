@@ -70,10 +70,11 @@ export const SalaryPayrollTab: React.FC<SalaryPayrollTabProps> = ({ viewMode, cu
   const rows =
     report?.rows.filter((r) => viewMode === 'admin' || !currentUser || r.employee_id === currentUser.id) || [];
 
-  const totalGross = rows.reduce((s, r) => s + r.salary.gross_salary, 0);
-  const totalOT = rows.reduce((s, r) => s + r.salary.overtime_pay, 0);
-  const totalDed = rows.reduce((s, r) => s + r.salary.total_deductions, 0);
-  const totalNet = rows.reduce((s, r) => s + r.salary.net_salary, 0);
+  const configuredRows = rows.filter((r) => r.salary_set !== false && r.salary);
+  const totalGross = configuredRows.reduce((s, r) => s + (r.salary?.gross_salary || 0), 0);
+  const totalOT = configuredRows.reduce((s, r) => s + (r.salary?.overtime_pay || 0), 0);
+  const totalDed = configuredRows.reduce((s, r) => s + (r.salary?.total_deductions || 0), 0);
+  const totalNet = configuredRows.reduce((s, r) => s + (r.salary?.net_salary || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -183,6 +184,45 @@ export const SalaryPayrollTab: React.FC<SalaryPayrollTabProps> = ({ viewMode, cu
           <tbody className="divide-y divide-slate-800/70">
             {rows.map((r) => {
               const s = r.salary;
+              const isSet = r.salary_set !== false && Boolean(s);
+              const emptyStructure: SalaryStructure = {
+                employee_id: r.employee_id,
+                name: r.name,
+                currency: 'INR',
+                base_monthly_salary: 0,
+                hra: 0,
+                transport_allowance: 0,
+                special_allowance: 0,
+                pf_deduction: 0,
+                tax_deduction: 0,
+                overtime_hourly_rate: 0,
+                working_days_per_month: 22,
+              };
+              if (!isSet || !s) {
+                return (
+                  <tr key={r.employee_id} className="hover:bg-slate-800/30">
+                    <td className="px-4 py-3">
+                      <div className="font-semibold text-white">{r.name}</div>
+                      <div className="text-[11px] text-slate-400">{r.emp_code} • {r.designation}</div>
+                    </td>
+                    <td colSpan={7} className="px-4 py-3 text-xs italic text-slate-400">
+                      Salary not set (excluded from totals &amp; CSV)
+                    </td>
+                    {viewMode === 'admin' && (
+                      <td className="px-4 py-3">
+                        <button
+                          disabled={Boolean(report?.locked)}
+                          onClick={() => setEditing(emptyStructure)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-indigo-500/40 bg-indigo-500/15 hover:bg-indigo-500/25 disabled:opacity-40 px-2.5 py-1.5 text-xs font-semibold text-indigo-200 cursor-pointer"
+                        >
+                          <Edit3 className="h-3.5 w-3.5" />
+                          Set salary
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              }
               const allowances = s.hra + s.transport_allowance + s.special_allowance;
               return (
                 <tr key={r.employee_id} className="hover:bg-slate-800/30">
