@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AttendanceStatus, DashboardData, Employee, TabId, Task, TaskPriority, ViewMode } from './types';
 import { getTodayISO } from './utils/format';
 import { useIdleDetector } from './hooks/useIdleDetector';
@@ -88,11 +88,16 @@ export function App() {
     setActiveTab('overview');
   };
 
+  const dashboardInFlightRef = useRef<boolean>(false);
+  const lastDashboardSlowRef = useRef<boolean>(false);
+
   const fetchDashboard = useCallback(async (silent = false) => {
-    if (!authUser) return;
+    if (!authUser || dashboardInFlightRef.current) return;
+    dashboardInFlightRef.current = true;
     if (!silent) setIsSyncing(true);
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    const startMs = Date.now();
     try {
       const res = await fetch(`/api/dashboard?date=${selectedDate}`, { signal: controller.signal });
       if (res.status === 401) {
@@ -101,6 +106,7 @@ export function App() {
       }
       if (!res.ok) throw new Error(`API error (${res.status})`);
       const json: DashboardData = await res.json();
+      lastDashboardSlowRef.current = Date.now() - startMs > 1500;
       setData(json);
       if (json.officeSchedule?.idleThresholdSeconds) {
         setIdleThresholdSeconds(json.officeSchedule.idleThresholdSeconds);
@@ -108,12 +114,13 @@ export function App() {
       setError(null);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
-        setError('Dashboard request timed out after 10s. Please retry.');
+        setError('Dashboard request timed out. Please retry.');
       } else {
         setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
       }
     } finally {
       clearTimeout(timeoutId);
+      dashboardInFlightRef.current = false;
       setLoading(false);
       setIsSyncing(false);
     }
@@ -122,10 +129,18 @@ export function App() {
   useEffect(() => {
     if (!authUser) return;
     fetchDashboard();
-    const timer = setInterval(() => {
-      if (document.visibilityState === 'visible') fetchDashboard(true);
-    }, 8000);
-    return () => clearInterval(timer);
+    let timer: ReturnType<typeof setTimeout>;
+    const scheduleNext = () => {
+      const delay = document.visibilityState !== 'visible' || lastDashboardSlowRef.current ? 15000 : 8000;
+      timer = setTimeout(async () => {
+        if (document.visibilityState === 'visible') {
+          await fetchDashboard(true);
+        }
+        scheduleNext();
+      }, delay);
+    };
+    scheduleNext();
+    return () => clearTimeout(timer);
   }, [fetchDashboard, authUser]);
 
   const currentUser =

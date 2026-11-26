@@ -712,3 +712,45 @@ test('Round 3: bot quick replies, zero-task bot reply, and leave date/overlap va
   });
   assert.equal(clockedOverlap.status, 400);
 });
+
+test('Round 4: combined idle signal (no flapping), 180s stale offline, and includeInactive=true', async () => {
+  const { createSessionToken, SESSION_COOKIE_NAME } = await import('./auth.js');
+  const freshAdminCookie = `${SESSION_COOKIE_NAME}=${createSessionToken(1)}`;
+
+  // 1. Combined signal logic (matches resolveCombinedIdleState in useIdleDetector.ts)
+  const resolveCombined = ({ userState, screenState, msSinceTabInput, idleThresholdMs }) => {
+    if (screenState === 'locked') return 'idle';
+    if (userState === 'active' || msSinceTabInput < idleThresholdMs) return 'active';
+    return 'idle';
+  };
+  // Alternating detector idle while tab input is recent -> stays active (no flapping)
+  assert.equal(resolveCombined({ userState: 'idle', screenState: 'unlocked', msSinceTabInput: 5000, idleThresholdMs: 60000 }), 'active');
+  // Detector active while tab has no input -> stays active
+  assert.equal(resolveCombined({ userState: 'active', screenState: 'unlocked', msSinceTabInput: 90000, idleThresholdMs: 60000 }), 'active');
+  // Both say idle -> idle
+  assert.equal(resolveCombined({ userState: 'idle', screenState: 'unlocked', msSinceTabInput: 65000, idleThresholdMs: 60000 }), 'idle');
+  // Screen locked -> idle immediately
+  assert.equal(resolveCombined({ userState: 'active', screenState: 'locked', msSinceTabInput: 0, idleThresholdMs: 60000 }), 'idle');
+
+  // 2. Stale heartbeat > 180s -> /api/dashboard returns status: 'offline'
+  const staleTime = new Date(Date.now() - 200 * 1000).toISOString();
+  db.prepare(`UPDATE employees SET status = 'active', last_heartbeat_at = ? WHERE id = 2`).run(staleTime);
+  const dashRes = await fetch(`${baseUrl}/api/dashboard`, { headers: { Cookie: freshAdminCookie } });
+  assert.equal(dashRes.status, 200);
+  const dash = await dashRes.json();
+  const emp2 = dash.employees.find((e) => e.id === 2);
+  assert.equal(emp2.status, 'offline', 'Employee with heartbeat > 180s ago must appear offline');
+
+  // 3. includeInactive=true includes deactivated employees
+  db.prepare(`UPDATE employees SET is_active = 0 WHERE id = 6`).run();
+  const activeOnlyRes = await fetch(`${baseUrl}/api/dashboard`, { headers: { Cookie: freshAdminCookie } });
+  const activeOnly = await activeOnlyRes.json();
+  assert.equal(activeOnly.employees.some((e) => e.id === 6), false);
+
+  const withInactiveRes = await fetch(`${baseUrl}/api/dashboard?includeInactive=true`, { headers: { Cookie: freshAdminCookie } });
+  const withInactive = await withInactiveRes.json();
+  const emp6 = withInactive.employees.find((e) => e.id === 6);
+  assert.ok(emp6, 'includeInactive=true must return deactivated employee');
+  assert.equal(emp6.is_active, 0);
+  db.prepare(`UPDATE employees SET is_active = 1 WHERE id = 6`).run();
+});

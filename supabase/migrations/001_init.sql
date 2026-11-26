@@ -186,7 +186,13 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
+CREATE INDEX IF NOT EXISTS idx_attendance_emp_date ON attendance(employee_id, date);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_emp_date ON activity_logs(employee_id, date);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_emp_ts ON activity_logs(employee_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_ts ON activity_logs(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_assignee_status ON tasks(assignee_id, status);
+CREATE INDEX IF NOT EXISTS idx_leaves_emp_start ON leaves(employee_id, start_date);
 CREATE INDEX IF NOT EXISTS idx_chat_messages_pair ON chat_messages(sender_id, recipient_id, id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at DESC);

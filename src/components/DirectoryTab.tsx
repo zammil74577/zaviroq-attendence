@@ -239,7 +239,7 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-white">{emp.name}</span>
                       {(emp.is_active === false || emp.is_active === 0) && (
-                        <span className="rounded-md border border-rose-500/30 bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-rose-300">
+                        <span className="rounded-md border border-slate-600 bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300">
                           Inactive
                         </span>
                       )}

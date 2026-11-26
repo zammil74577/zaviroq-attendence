@@ -408,65 +408,69 @@ app.post('/api/auth/logout', async (req, res) => {
 app.use('/api', requireAuth);
 
 app.get('/api/dashboard', async (req, res) => {
-  await ensureSchemaOnce();
   const date = req.query.date || getTodayDateInTz();
   const isPrivileged = req.user.role === 'admin' || req.user.role === 'manager';
-  const settings = await getSettings();
-  const breakLimitSec = settings.totalBreakMinutes * 60;
-
   const includeInactive = isPrivileged && req.query.includeInactive === 'true';
-  const rawEmployees = await getAll(
-    `SELECT e.id, e.emp_code, e.name, e.email, e.role, e.department, e.designation,
-      e.shift_start, e.shift_end, e.status, e.avatar_color, e.joining_date::text as joining_date,
-      e.is_active, e.tracking_consent_at,
-      e.last_seen_at, e.last_heartbeat_at, e.last_heartbeat_state, e.created_at,
-      a.id as attendance_id, a.clock_in, a.clock_out,
-      COALESCE(a.status, 'absent') as attendance_status,
-      COALESCE(a.active_seconds, 0) as active_seconds,
-      COALESCE(a.idle_seconds, 0) as idle_seconds,
-      COALESCE(a.break_seconds, 0) as break_seconds,
-      COALESCE(a.overtime_seconds, 0) as overtime_seconds,
-      COALESCE(a.missed_clock_out, FALSE) as missed_clock_out,
-      COALESCE(a.tracking_mode, 'tab_only') as tracking_mode,
-      COALESCE(a.notes, '') as attendance_notes
-    FROM employees e
-    LEFT JOIN attendance a ON a.employee_id = e.id AND a.date = $1::date
-    WHERE ${includeInactive ? '1=1' : 'e.is_active = TRUE'} ${isPrivileged ? '' : 'AND e.id = $2'}
-    ORDER BY e.id ASC`,
-    isPrivileged ? [date] : [date, req.user.id]
-  );
 
-  const employees = rawEmployees.map((e) => ({
-    ...sanitizeEmployee(e),
-    shift_start: e.shift_start || settings.shiftStart,
-    shift_end: e.shift_end || settings.shiftEnd,
-    break_over_limit: (e.break_seconds || 0) > breakLimitSec,
-  }));
+  const [settings, rawEmployees, rawTasks, logs, announcements] = await Promise.all([
+    getSettings(),
+    getAll(
+      `SELECT e.id, e.emp_code, e.name, e.email, e.role, e.department, e.designation,
+        e.shift_start, e.shift_end, e.status, e.avatar_color, e.joining_date::text as joining_date,
+        e.is_active, e.tracking_consent_at,
+        e.last_seen_at, e.last_heartbeat_at, e.last_heartbeat_state, e.created_at,
+        a.id as attendance_id, a.clock_in, a.clock_out,
+        COALESCE(a.status, 'absent') as attendance_status,
+        COALESCE(a.active_seconds, 0) as active_seconds,
+        COALESCE(a.idle_seconds, 0) as idle_seconds,
+        COALESCE(a.break_seconds, 0) as break_seconds,
+        COALESCE(a.overtime_seconds, 0) as overtime_seconds,
+        COALESCE(a.missed_clock_out, FALSE) as missed_clock_out,
+        COALESCE(a.tracking_mode, 'tab_only') as tracking_mode,
+        COALESCE(a.notes, '') as attendance_notes
+      FROM employees e
+      LEFT JOIN attendance a ON a.employee_id = e.id AND a.date = $1::date
+      WHERE ${includeInactive ? '1=1' : 'e.is_active = TRUE'} ${isPrivileged ? '' : 'AND e.id = $2'}
+      ORDER BY e.id ASC`,
+      isPrivileged ? [date] : [date, req.user.id]
+    ),
+    getAll(
+      `SELECT t.*, t.due_date::text as due_date,
+        e.name as assignee_name, e.emp_code as assignee_code, e.avatar_color as assignee_color, e.status as assignee_live_status
+      FROM tasks t
+      LEFT JOIN employees e ON e.id = t.assignee_id
+      ${isPrivileged ? '' : 'WHERE t.assignee_id = $1'}
+      ORDER BY CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END, t.due_date ASC, t.id DESC`,
+      isPrivileged ? [] : [req.user.id]
+    ),
+    getAll(
+      `SELECT l.*, l.date::text as date, e.name as employee_name, e.emp_code
+       FROM activity_logs l
+       JOIN employees e ON e.id = l.employee_id
+       WHERE l.date = $1::date ${isPrivileged ? '' : 'AND l.employee_id = $2'}
+       ORDER BY l.id DESC LIMIT 40`,
+      isPrivileged ? [date] : [date, req.user.id]
+    ),
+    getAll(
+      `SELECT an.*, e.name as author_name FROM announcements an LEFT JOIN employees e ON e.id = an.author_id ORDER BY an.id DESC LIMIT 10`
+    ),
+  ]);
 
-  const rawTasks = await getAll(
-    `SELECT t.*, t.due_date::text as due_date,
-      e.name as assignee_name, e.emp_code as assignee_code, e.avatar_color as assignee_color, e.status as assignee_live_status
-    FROM tasks t
-    LEFT JOIN employees e ON e.id = t.assignee_id
-    ${isPrivileged ? '' : 'WHERE t.assignee_id = $1'}
-    ORDER BY CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END, t.due_date ASC, t.id DESC`,
-    isPrivileged ? [] : [req.user.id]
-  );
+  const breakLimitSec = settings.totalBreakMinutes * 60;
+  const nowMs = Date.now();
+  const employees = rawEmployees.map((e) => {
+    const isStale = e.status !== 'offline' && e.last_heartbeat_at && (nowMs - new Date(e.last_heartbeat_at).getTime() > 180000);
+    return {
+      ...sanitizeEmployee(e),
+      status: isStale ? 'offline' : e.status,
+      shift_start: e.shift_start || settings.shiftStart,
+      shift_end: e.shift_end || settings.shiftEnd,
+      break_over_limit: (e.break_seconds || 0) > breakLimitSec,
+    };
+  });
+
   const today = getTodayDateInTz();
   const tasks = rawTasks.map((t) => ({ ...t, is_overdue: isTaskOverdue(t, today, settings.shiftEnd) }));
-
-  const logs = await getAll(
-    `SELECT l.*, l.date::text as date, e.name as employee_name, e.emp_code
-     FROM activity_logs l
-     JOIN employees e ON e.id = l.employee_id
-     WHERE l.date = $1::date ${isPrivileged ? '' : 'AND l.employee_id = $2'}
-     ORDER BY l.id DESC LIMIT 40`,
-    isPrivileged ? [date] : [date, req.user.id]
-  );
-
-  const announcements = await getAll(
-    `SELECT an.*, e.name as author_name FROM announcements an LEFT JOIN employees e ON e.id = an.author_id ORDER BY an.id DESC LIMIT 10`
-  );
 
   const summary = {
     date,
@@ -750,7 +754,7 @@ app.post('/api/activity/heartbeat', async (req, res) => {
         `SELECT id, timestamp FROM activity_logs WHERE employee_id = $1 AND date = $2::date AND type IN ('idle_start', 'idle_end', 'break_start', 'break_end') ORDER BY id DESC LIMIT 1`,
         [employeeId, today]
       );
-      if (latestLog && now.getTime() - new Date(latestLog.timestamp).getTime() <= 2000) {
+      if (latestLog && now.getTime() - new Date(latestLog.timestamp).getTime() <= 10000) {
         await query(`UPDATE activity_logs SET type = $1, reason = $2, timestamp = NOW() WHERE id = $3`, [logType, reason || `Switched to ${state}`, latestLog.id]);
       } else {
         await query(`INSERT INTO activity_logs (employee_id, date, type, reason, timestamp) VALUES ($1, $2::date, $3, $4, NOW())`, [employeeId, today, logType, reason || `Switched to ${state}`]);

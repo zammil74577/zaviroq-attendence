@@ -21,6 +21,22 @@ export function mapIdleDetectorState(
   return 'active';
 }
 
+export function resolveCombinedIdleState({
+  userState,
+  screenState,
+  msSinceTabInput,
+  idleThresholdMs,
+}: {
+  userState: 'active' | 'idle';
+  screenState: 'locked' | 'unlocked';
+  msSinceTabInput: number;
+  idleThresholdMs: number;
+}): 'active' | 'idle' {
+  if (screenState === 'locked') return 'idle';
+  if (userState === 'active' || msSinceTabInput < idleThresholdMs) return 'active';
+  return 'idle';
+}
+
 interface UseIdleDetectorOptions {
   employeeId: number | null;
   isClockedIn: boolean;
@@ -67,6 +83,9 @@ export function useIdleDetector({
   const tickCountRef = useRef<number>(0);
   const trackingModeRef = useRef<'system' | 'tab_only'>('tab_only');
   const abortControllerRef = useRef<AbortController | null>(null);
+  const systemUserStateRef = useRef<'active' | 'idle'>('active');
+  const systemScreenStateRef = useRef<'locked' | 'unlocked'>('unlocked');
+  const pendingTransitionRef = useRef<{ state: 'active' | 'idle'; sinceMs: number } | null>(null);
 
   useEffect(() => {
     if (initialStatus === 'break' || initialStatus === 'idle' || initialStatus === 'active') {
@@ -124,20 +143,15 @@ export function useIdleDetector({
 
     const detector = new Ctor();
     detector.addEventListener('change', () => {
+      systemUserStateRef.current = detector.userState;
+      systemScreenStateRef.current = detector.screenState;
       if (stateRef.current === 'break') return;
-      const mapped = mapIdleDetectorState(detector.userState, detector.screenState);
-      if (mapped !== stateRef.current) {
-        stateRef.current = mapped;
-        setLiveState(mapped);
-        lastActivityRef.current = Date.now();
-        setSecondsSinceActivity(0);
+      if (detector.screenState === 'locked' && stateRef.current !== 'idle') {
+        stateRef.current = 'idle';
+        setLiveState('idle');
+        pendingTransitionRef.current = null;
         tickCountRef.current = 0;
-        sendHeartbeat(
-          mapped,
-          `System IdleDetector: user=${detector.userState}, screen=${detector.screenState}`,
-          false,
-          'system'
-        );
+        sendHeartbeat('idle', 'System IdleDetector: screen=locked', false, 'system');
       }
     });
 
@@ -234,15 +248,40 @@ export function useIdleDetector({
     }
 
     const interval = setInterval(() => {
-      const elapsedIdle = Math.floor((Date.now() - lastActivityRef.current) / 1000);
+      const nowMs = Date.now();
+      const msSinceTabInput = nowMs - lastActivityRef.current;
+      const elapsedIdle = Math.floor(msSinceTabInput / 1000);
       setSecondsSinceActivity(elapsedIdle);
 
-      if (stateRef.current === 'active' && elapsedIdle >= idleThresholdSeconds) {
-        stateRef.current = 'idle';
-        setLiveState('idle');
-        tickCountRef.current = 0;
-        sendHeartbeat('idle', `Auto-idle after ${idleThresholdSeconds}s inactivity`);
-        return;
+      if (stateRef.current !== 'break') {
+        const targetState = trackingModeRef.current === 'system'
+          ? resolveCombinedIdleState({
+              userState: systemUserStateRef.current,
+              screenState: systemScreenStateRef.current,
+              msSinceTabInput,
+              idleThresholdMs: idleThresholdSeconds * 1000,
+            })
+          : (elapsedIdle >= idleThresholdSeconds ? 'idle' : 'active');
+
+        if (targetState !== stateRef.current) {
+          if (!pendingTransitionRef.current || pendingTransitionRef.current.state !== targetState) {
+            pendingTransitionRef.current = { state: targetState, sinceMs: nowMs };
+          } else if (nowMs - pendingTransitionRef.current.sinceMs >= 10000) {
+            stateRef.current = targetState;
+            setLiveState(targetState);
+            pendingTransitionRef.current = null;
+            tickCountRef.current = 0;
+            sendHeartbeat(
+              targetState,
+              targetState === 'idle'
+                ? `Auto-idle after ${idleThresholdSeconds}s inactivity`
+                : 'User activity resumed'
+            );
+            return;
+          }
+        } else {
+          pendingTransitionRef.current = null;
+        }
       }
 
       tickCountRef.current += 1;

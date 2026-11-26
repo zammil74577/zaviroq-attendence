@@ -8,7 +8,7 @@
  *   SMOKE_CODE=ZAV-001 SMOKE_PIN=849201 BASE_URL=https://zaviroq-attendence.vercel.app npm run smoke
  */
 const baseUrl = (process.env.BASE_URL || 'https://zaviroq-attendence.vercel.app').replace(/\/$/, '');
-const timeoutMs = Number(process.env.SMOKE_TIMEOUT_MS || 5000);
+const timeoutMs = Number(process.env.SMOKE_TIMEOUT_MS || 2000);
 
 async function timedFetch(path, opts = {}) {
   const start = Date.now();

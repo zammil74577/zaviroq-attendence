@@ -431,12 +431,17 @@ app.get('/api/dashboard', (req, res) => {
     ORDER BY e.id ASC
   `).all(...(isPrivileged ? [date] : [date, req.user.id]));
 
-  const employees = rawEmployees.map((e) => ({
-    ...sanitizeEmployee(e),
-    shift_start: e.shift_start || settings.shiftStart,
-    shift_end: e.shift_end || settings.shiftEnd,
-    break_over_limit: (e.break_seconds || 0) > breakLimitSec,
-  }));
+  const nowMs = Date.now();
+  const employees = rawEmployees.map((e) => {
+    const isStale = e.status !== 'offline' && e.last_heartbeat_at && (nowMs - new Date(e.last_heartbeat_at).getTime() > 180000);
+    return {
+      ...sanitizeEmployee(e),
+      status: isStale ? 'offline' : e.status,
+      shift_start: e.shift_start || settings.shiftStart,
+      shift_end: e.shift_end || settings.shiftEnd,
+      break_over_limit: (e.break_seconds || 0) > breakLimitSec,
+    };
+  });
 
   const tasks = db.prepare(`
     SELECT t.*,
@@ -815,8 +820,8 @@ app.post('/api/activity/heartbeat', (req, res) => {
         ORDER BY id DESC LIMIT 1
       `).get(employeeId, today);
 
-      const within2s = latestLog && (now.getTime() - new Date(latestLog.timestamp).getTime() <= 2000);
-      if (within2s) {
+      const within10s = latestLog && (now.getTime() - new Date(latestLog.timestamp).getTime() <= 10000);
+      if (within10s) {
         db.prepare(`UPDATE activity_logs SET type = ?, reason = ?, timestamp = ? WHERE id = ?`)
           .run(logType, reason || `Switched to ${state}`, nowIso, latestLog.id);
       } else {
