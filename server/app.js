@@ -826,6 +826,18 @@ app.post('/api/leaves', async (req, res) => {
   const targetEmployeeId = isPrivileged && req.body.employee_id ? Number(req.body.employee_id) : req.user.id;
   const { leave_type = 'casual', start_date, end_date, reason = '' } = req.body;
   if (!start_date || !end_date) return res.status(400).json({ error: 'start_date and end_date are required.' });
+  const sDate = new Date(`${start_date}T00:00:00Z`);
+  const eDate = new Date(`${end_date}T00:00:00Z`);
+  if (Number.isNaN(sDate.getTime()) || Number.isNaN(eDate.getTime()) || eDate < sDate) {
+    return res.status(400).json({ error: 'End date must be on or after start date.' });
+  }
+  const clockedConflict = await getOne(
+    `SELECT date::text as date FROM attendance WHERE employee_id = $1 AND date >= $2::date AND date <= $3::date AND clock_in IS NOT NULL LIMIT 1`,
+    [targetEmployeeId, start_date, end_date]
+  );
+  if (clockedConflict) {
+    return res.status(400).json({ error: `Cannot apply leave for ${clockedConflict.date} — already clocked in.` });
+  }
   const days = await countWorkingLeaveDays(start_date, end_date);
   if (days <= 0) return res.status(400).json({ error: 'Selected range contains only weekends or holidays.' });
 
@@ -1322,13 +1334,15 @@ async function generateBotReply(userId, promptText) {
   const caller = await getOne('SELECT * FROM employees WHERE id = $1', [Number(userId)]);
   const isPrivileged = caller && (caller.role === 'admin' || caller.role === 'manager');
   const emps = await getAll(
-    `SELECT e.*, COALESCE(a.status, 'absent') as att_status, COALESCE(a.active_seconds, 0) as active_seconds, COALESCE(a.idle_seconds, 0) as idle_seconds
+    `SELECT e.*, a.clock_in, a.clock_out, COALESCE(a.status, 'absent') as att_status,
+       COALESCE(a.active_seconds, 0) as active_seconds, COALESCE(a.idle_seconds, 0) as idle_seconds,
+       COALESCE(a.break_seconds, 0) as break_seconds
      FROM employees e LEFT JOIN attendance a ON a.employee_id = e.id AND a.date = $1::date ${isPrivileged ? 'WHERE e.is_active = TRUE' : 'WHERE e.id = $2'}`,
     isPrivileged ? [today] : [today, Number(userId)]
   );
+  const me = emps.find((e) => e.id === Number(userId)) || caller;
 
-  if (q.includes('motivate') || q.includes('encourage') || q.includes('hello') || q.includes('hi')) {
-    const me = emps.find((e) => e.id === Number(userId));
+  if (q.includes('motivate') || q.includes('encourage') || q === 'hello' || q === 'hi') {
     const myPending = (await getOne(`SELECT COUNT(*)::int as cnt FROM tasks WHERE assignee_id = $1 AND status != 'completed'`, [Number(userId)])).cnt;
     const activeHrs = ((me?.active_seconds || 0) / 3600).toFixed(1);
     const s = await getSettings();
@@ -1338,11 +1352,60 @@ async function generateBotReply(userId, promptText) {
     }
     return `You've got this, ${me?.name || 'teammate'}! You've already logged ${activeHrs}h of active focus today. Knock out your ${myPending} pending task(s) — finish strong before ${me?.shift_end || s.shiftEnd}!`;
   }
-  if (q.includes('time') || q.includes('timing') || q.includes('lunch') || q.includes('tea') || q.includes('shift') || q.includes('office')) {
+
+  if (q.includes('live status') || q.includes('idle') || q.includes('active')) {
+    if (!isPrivileged || q.includes('my live status')) {
+      const stateLabel = (me?.status || 'offline').toUpperCase();
+      const activeMin = Math.round((me?.active_seconds || 0) / 60);
+      const idleMin = Math.round((me?.idle_seconds || 0) / 60);
+      const breakMin = Math.round((me?.break_seconds || 0) / 60);
+      return `Your Live Status (${today}):\n• Current State: ${stateLabel}\n• Active: ${activeMin}m | Idle: ${idleMin}m | Break: ${breakMin}m`;
+    }
+    const idleList = emps.filter((e) => e.status === 'idle').map((e) => e.name);
+    const breakList = emps.filter((e) => e.status === 'break').map((e) => e.name);
+    const activeList = emps.filter((e) => e.status === 'active').map((e) => e.name);
+    return `Live Desk Status (${today}):\n• Active (${activeList.length}): ${activeList.join(', ') || 'None'}\n• Idle (${idleList.length}): ${idleList.join(', ') || 'None'}\n• On Break (${breakList.length}): ${breakList.join(', ') || 'None'}`;
+  }
+
+  if (q.includes('attendance') || q.includes('present') || q.includes('late') || q.includes('absent')) {
+    if (!isPrivileged || q.includes("today's attendance")) {
+      const clockInStr = me?.clock_in
+        ? new Date(me.clock_in).toLocaleTimeString('en-IN', { timeZone: APP_TIMEZONE, hour: '2-digit', minute: '2-digit' })
+        : 'Not clocked in';
+      const arrival = me?.clock_in ? (me.att_status === 'late' ? 'Late' : 'On time') : (me?.att_status || 'absent').toUpperCase();
+      const hrs = ((me?.active_seconds || 0) / 3600).toFixed(1);
+      return `Today's Attendance (${today}):\n• Clock-in: ${clockInStr} (${arrival})\n• Hours so far: ${hrs}h active`;
+    }
+    const present = emps.filter((e) => e.att_status === 'present').length;
+    const late = emps.filter((e) => e.att_status === 'late').map((e) => e.name);
+    const absent = emps.filter((e) => e.att_status === 'absent').map((e) => e.name);
+    return `Today's Attendance (${today}):\n• Present on time: ${present}\n• Late: ${late.length ? late.join(', ') : 'None'}\n• Absent/Not clocked in: ${absent.length ? absent.join(', ') : 'None'}`;
+  }
+
+  if (q.includes('timing') || q.includes('lunch') || q.includes('tea') || q.includes('shift') || q.includes('office') || q.includes('break')) {
     const s = await getSettings();
     return `Zaviroq Office Policy:\n• Office Hours: ${s.shiftStart} – ${s.shiftEnd} (${s.lateGraceMinutes}m arrival grace)\n• Lunch Break: ${s.lunchBreak} (${s.lunchMinutes} mins)\n• Tea Break: ${s.teaMinutes} mins after ${s.teaBreakAfter}\n• Net Shift: ${s.netWorkHours}h active work`;
   }
+
+  if (q.includes('leave') || q.includes('holiday') || q.includes('off')) {
+    const myLeaves = await getAll(
+      `SELECT l.*, l.start_date::text as start_date, l.end_date::text as end_date, e.name
+       FROM leaves l JOIN employees e ON e.id = l.employee_id
+       WHERE l.status = 'pending' ${isPrivileged ? '' : 'AND l.employee_id = $1'}
+       ORDER BY l.id DESC`,
+      isPrivileged ? [] : [Number(userId)]
+    );
+    if (myLeaves.length === 0) return 'You have no pending leave requests right now.';
+    return `Pending Leave Requests (${myLeaves.length}):\n` +
+      myLeaves.map((l) => `• ${l.name}: ${l.leave_type} (${l.start_date} to ${l.end_date}, ${Number(l.days)}d) — ${l.reason}`).join('\n');
+  }
+
   if (q.includes('pending') || q.includes('task') || q.includes('overdue')) {
+    const totalRow = await getOne(
+      `SELECT COUNT(*)::int as cnt FROM tasks ${isPrivileged ? '' : 'WHERE assignee_id = $1'}`,
+      isPrivileged ? [] : [Number(userId)]
+    );
+    if (totalRow.cnt === 0) return 'You have no tasks assigned yet.';
     const pending = await getAll(
       `SELECT t.title, t.priority, t.due_date::text as due_date, e.name as assignee FROM tasks t LEFT JOIN employees e ON e.id = t.assignee_id WHERE t.status != 'completed' ${isPrivileged ? '' : 'AND t.assignee_id = $1'} ORDER BY t.due_date ASC LIMIT 5`,
       isPrivileged ? [] : [Number(userId)]

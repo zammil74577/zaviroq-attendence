@@ -24,6 +24,7 @@ interface TopBarProps {
   currentUser: Employee | null;
   onSelectUser: (id: number) => void;
   liveState: 'active' | 'idle' | 'break';
+  trackingMode?: 'system' | 'tab_only';
   onClockIn: () => void;
   onClockOut: () => void;
   clockActionPending?: boolean;
@@ -45,6 +46,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   currentUser,
   onSelectUser,
   liveState,
+  trackingMode = 'tab_only',
   onClockIn,
   onClockOut,
   clockActionPending = false,
@@ -177,6 +179,17 @@ export const TopBar: React.FC<TopBarProps> = ({
                 </select>
               )}
               <LiveStatusBadge status={effectiveLiveStatus} />
+              {isClockedIn && !isReadOnlyPreview && (
+                <span
+                  className={`hidden md:inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium ${
+                    trackingMode === 'system'
+                      ? 'border-emerald-500/30 bg-emerald-500/15 text-emerald-300'
+                      : 'border-amber-500/30 bg-amber-500/15 text-amber-300'
+                  }`}
+                >
+                  {trackingMode === 'system' ? 'System tracking' : 'Tab-only'}
+                </span>
+              )}
             </div>
           )}
         </div>

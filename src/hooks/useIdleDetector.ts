@@ -111,6 +111,46 @@ export function useIdleDetector({
     [employeeId, isClockedIn, onSync, onSessionExpired]
   );
 
+  const startSystemDetector = useCallback(async (): Promise<'system' | 'tab_only'> => {
+    const Ctor = (window as unknown as { IdleDetector?: IdleDetectorCtor }).IdleDetector;
+    if (!Ctor) {
+      trackingModeRef.current = 'tab_only';
+      setTrackingMode('tab_only');
+      return 'tab_only';
+    }
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    const detector = new Ctor();
+    detector.addEventListener('change', () => {
+      if (stateRef.current === 'break') return;
+      const mapped = mapIdleDetectorState(detector.userState, detector.screenState);
+      if (mapped !== stateRef.current) {
+        stateRef.current = mapped;
+        setLiveState(mapped);
+        lastActivityRef.current = Date.now();
+        setSecondsSinceActivity(0);
+        tickCountRef.current = 0;
+        sendHeartbeat(
+          mapped,
+          `System IdleDetector: user=${detector.userState}, screen=${detector.screenState}`,
+          false,
+          'system'
+        );
+      }
+    });
+
+    await detector.start({
+      threshold: Math.max(60000, idleThresholdSeconds * 1000),
+      signal: controller.signal,
+    });
+
+    trackingModeRef.current = 'system';
+    setTrackingMode('system');
+    return 'system';
+  }, [idleThresholdSeconds, sendHeartbeat]);
+
   // Must be called from a user gesture (e.g. Clock In button click)
   const requestSystemIdleDetection = useCallback(async (): Promise<'system' | 'tab_only'> => {
     const Ctor = (window as unknown as { IdleDetector?: IdleDetectorCtor }).IdleDetector;
@@ -126,53 +166,41 @@ export function useIdleDetector({
         setTrackingMode('tab_only');
         return 'tab_only';
       }
-
-      abortControllerRef.current?.abort();
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-
-      const detector = new Ctor();
-      detector.addEventListener('change', () => {
-        if (stateRef.current === 'break') return;
-        const mapped = mapIdleDetectorState(detector.userState, detector.screenState);
-        if (mapped !== stateRef.current) {
-          stateRef.current = mapped;
-          setLiveState(mapped);
-          lastActivityRef.current = Date.now();
-          setSecondsSinceActivity(0);
-          tickCountRef.current = 0;
-          sendHeartbeat(
-            mapped,
-            `System IdleDetector: user=${detector.userState}, screen=${detector.screenState}`,
-            false,
-            'system'
-          );
-        }
-      });
-
-      await detector.start({
-        threshold: Math.max(60000, idleThresholdSeconds * 1000),
-        signal: controller.signal,
-      });
-
-      trackingModeRef.current = 'system';
-      setTrackingMode('system');
-      return 'system';
+      return await startSystemDetector();
     } catch {
       trackingModeRef.current = 'tab_only';
       setTrackingMode('tab_only');
       return 'tab_only';
     }
-  }, [idleThresholdSeconds, sendHeartbeat]);
+  }, [startSystemDetector]);
 
+  // Auto-start IdleDetector on load or clock-in if permission is already "granted"
   useEffect(() => {
-    if (!isClockedIn) {
+    if (!isClockedIn || !employeeId) {
       abortControllerRef.current?.abort();
+      return;
     }
+    let cancelled = false;
+    (async () => {
+      const Ctor = (window as unknown as { IdleDetector?: IdleDetectorCtor }).IdleDetector;
+      if (!Ctor || !navigator.permissions?.query) return;
+      try {
+        const status = await navigator.permissions.query({ name: 'idle-detection' as PermissionName });
+        if (!cancelled && status.state === 'granted') {
+          await startSystemDetector();
+          if (trackingModeRef.current === 'system') {
+            sendHeartbeat(stateRef.current, '', false, 'system');
+          }
+        }
+      } catch {
+        // Fallback to tab_only if permissions.query('idle-detection') is unsupported
+      }
+    })();
     return () => {
+      cancelled = true;
       abortControllerRef.current?.abort();
     };
-  }, [isClockedIn]);
+  }, [isClockedIn, employeeId, startSystemDetector, sendHeartbeat]);
 
   // Fallback in-tab mouse/keyboard listener
   useEffect(() => {

@@ -11,6 +11,7 @@ interface ChatTabProps {
 
 export const ChatTab: React.FC<ChatTabProps> = ({ viewMode, currentUser }) => {
   const [contacts, setContacts] = useState<ChatContact[]>([]);
+  const [contactsLoading, setContactsLoading] = useState<boolean>(true);
   const [selectedPeerId, setSelectedPeerId] = useState<number>(0); // 0 = Zaviroq Bot
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState('');
@@ -24,10 +25,12 @@ export const ChatTab: React.FC<ChatTabProps> = ({ viewMode, currentUser }) => {
   const selectedPeer = selectedPeerId === 0 ? null : peers.find((p) => p.id === selectedPeerId) || null;
 
   useEffect(() => {
+    setContactsLoading(true);
     fetch('/api/chat/contacts')
       .then((r) => (r.ok ? r.json() : []))
       .then((rows) => setContacts(Array.isArray(rows) ? rows : []))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setContactsLoading(false));
   }, [userId]);
 
   const lastIdRef = useRef<number>(0);
@@ -149,9 +152,16 @@ export const ChatTab: React.FC<ChatTabProps> = ({ viewMode, currentUser }) => {
           </button>
 
           <div className="px-2 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-            Direct Messages ({peers.length})
+            Direct Messages {!contactsLoading && `(${peers.length})`}
           </div>
-          {peers.map((emp) => (
+          {contactsLoading ? (
+            <div className="space-y-2 px-1">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-12 animate-pulse rounded-xl bg-slate-800/60" />
+              ))}
+            </div>
+          ) : (
+            peers.map((emp) => (
             <button
               key={emp.id}
               onClick={() => setSelectedPeerId(emp.id)}
@@ -175,7 +185,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({ viewMode, currentUser }) => {
               </div>
               <LiveStatusBadge status={emp.status} />
             </button>
-          ))}
+            ))
+          )}
         </div>
 
         {/* Right Pane */}

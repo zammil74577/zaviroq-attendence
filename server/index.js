@@ -986,7 +986,13 @@ app.post('/api/leaves', (req, res) => {
   const s = new Date(start_date);
   const e = new Date(end_date);
   if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime()) || e < s) {
-    return res.status(400).json({ error: 'Invalid date range.' });
+    return res.status(400).json({ error: 'End date must be on or after start date.' });
+  }
+  const clockedConflict = db.prepare(
+    `SELECT date FROM attendance WHERE employee_id = ? AND date >= ? AND date <= ? AND clock_in IS NOT NULL LIMIT 1`
+  ).get(targetEmployeeId, start_date, end_date);
+  if (clockedConflict) {
+    return res.status(400).json({ error: `Cannot apply leave for ${clockedConflict.date} — already clocked in.` });
   }
   // Phase 3 #11: skip weekends & holidays
   const days = countWorkingLeaveDays(start_date, end_date);
@@ -1763,14 +1769,16 @@ function generateBotReply(userId, promptText) {
   const isPrivileged = caller && (caller.role === 'admin' || caller.role === 'manager');
 
   const emps = db.prepare(`
-    SELECT e.*, COALESCE(a.status, 'absent') as att_status, COALESCE(a.active_seconds, 0) as active_seconds, COALESCE(a.idle_seconds, 0) as idle_seconds
+    SELECT e.*, a.clock_in, a.clock_out, COALESCE(a.status, 'absent') as att_status,
+      COALESCE(a.active_seconds, 0) as active_seconds, COALESCE(a.idle_seconds, 0) as idle_seconds,
+      COALESCE(a.break_seconds, 0) as break_seconds
     FROM employees e
     LEFT JOIN attendance a ON a.employee_id = e.id AND a.date = ?
     ${isPrivileged ? 'WHERE e.is_active = 1' : 'WHERE e.id = ?'}
   `).all(...(isPrivileged ? [today] : [today, Number(userId)]));
+  const me = emps.find((e) => e.id === Number(userId)) || caller;
 
-  if (q.includes('motivate') || q.includes('encourage') || q.includes('hello') || q.includes('hi')) {
-    const me = emps.find((e) => e.id === Number(userId));
+  if (q.includes('motivate') || q.includes('encourage') || q === 'hello' || q === 'hi') {
     const myPending = db.prepare(`SELECT COUNT(*) as cnt FROM tasks WHERE assignee_id = ? AND status != 'completed'`).get(Number(userId)).cnt;
     const activeHrs = ((me?.active_seconds || 0) / 3600).toFixed(1);
     const s = getSettings();
@@ -1783,15 +1791,13 @@ function generateBotReply(userId, promptText) {
     return `You've got this, ${me?.name || 'teammate'}! You've already logged ${activeHrs}h of active focus today. Knock out your ${myPending} pending task(s) one step at a time — finish strong before ${me?.shift_end || s.shiftEnd}!`;
   }
 
-  if (q.includes('time') || q.includes('timing') || q.includes('lunch') || q.includes('tea') || q.includes('shift') || q.includes('office')) {
-    const s = getSettings();
-    return `Zaviroq Office Policy:\n• Office Hours: ${s.shiftStart} – ${s.shiftEnd} (${s.lateGraceMinutes}m arrival grace)\n• Lunch Break: ${s.lunchBreak} (${s.lunchMinutes} mins)\n• Tea Break: ${s.teaMinutes} mins after ${s.teaBreakAfter}\n• Net Shift: ${s.netWorkHours}h active work`;
-  }
-
-  if (q.includes('idle') || q.includes('break') || q.includes('active')) {
-    if (!isPrivileged) {
-      const me = emps[0];
-      return `Your Live Desk Status (${today}):\n• Current State: ${(me?.status || 'offline').toUpperCase()}\n• Active Time: ${Math.round((me?.active_seconds || 0) / 60)}m\n• Idle Time: ${Math.round((me?.idle_seconds || 0) / 60)}m`;
+  if (q.includes('live status') || q.includes('idle') || q.includes('active')) {
+    if (!isPrivileged || q.includes('my live status')) {
+      const stateLabel = (me?.status || 'offline').toUpperCase();
+      const activeMin = Math.round((me?.active_seconds || 0) / 60);
+      const idleMin = Math.round((me?.idle_seconds || 0) / 60);
+      const breakMin = Math.round((me?.break_seconds || 0) / 60);
+      return `Your Live Status (${today}):\n• Current State: ${stateLabel}\n• Active: ${activeMin}m | Idle: ${idleMin}m | Break: ${breakMin}m`;
     }
     const idleList = emps.filter((e) => e.status === 'idle').map((e) => e.name);
     const breakList = emps.filter((e) => e.status === 'break').map((e) => e.name);
@@ -1799,7 +1805,40 @@ function generateBotReply(userId, promptText) {
     return `Live Desk Status (${today}):\n• Active (${activeList.length}): ${activeList.join(', ') || 'None'}\n• Idle (${idleList.length}): ${idleList.join(', ') || 'None'}\n• On Break (${breakList.length}): ${breakList.join(', ') || 'None'}`;
   }
 
+  if (q.includes('attendance') || q.includes('present') || q.includes('late') || q.includes('absent')) {
+    if (!isPrivileged || q.includes("today's attendance")) {
+      const clockInStr = me?.clock_in
+        ? new Date(me.clock_in).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })
+        : 'Not clocked in';
+      const arrival = me?.clock_in ? (me.att_status === 'late' ? 'Late' : 'On time') : (me?.att_status || 'absent').toUpperCase();
+      const hrs = ((me?.active_seconds || 0) / 3600).toFixed(1);
+      return `Today's Attendance (${today}):\n• Clock-in: ${clockInStr} (${arrival})\n• Hours so far: ${hrs}h active`;
+    }
+    const present = emps.filter((e) => e.att_status === 'present').length;
+    const late = emps.filter((e) => e.att_status === 'late').map((e) => e.name);
+    const absent = emps.filter((e) => e.att_status === 'absent').map((e) => e.name);
+    return `Today's Attendance (${today}):\n• Present on time: ${present}\n• Late: ${late.length ? late.join(', ') : 'None'}\n• Absent/Not clocked in: ${absent.length ? absent.join(', ') : 'None'}`;
+  }
+
+  if (q.includes('timing') || q.includes('lunch') || q.includes('tea') || q.includes('shift') || q.includes('office') || q.includes('break')) {
+    const s = getSettings();
+    return `Zaviroq Office Policy:\n• Office Hours: ${s.shiftStart} – ${s.shiftEnd} (${s.lateGraceMinutes}m arrival grace)\n• Lunch Break: ${s.lunchBreak} (${s.lunchMinutes} mins)\n• Tea Break: ${s.teaMinutes} mins after ${s.teaBreakAfter}\n• Net Shift: ${s.netWorkHours}h active work`;
+  }
+
   if (q.includes('pending') || q.includes('task') || q.includes('overdue')) {
+    if (q.includes('leave')) {
+      const pendingLeaves = db.prepare(`
+        SELECT l.*, e.name FROM leaves l JOIN employees e ON e.id = l.employee_id
+        WHERE l.status = 'pending' ${isPrivileged ? '' : 'AND l.employee_id = ?'}
+      `).all(...(isPrivileged ? [] : [Number(userId)]));
+      if (pendingLeaves.length === 0) return 'You have no pending leave requests right now.';
+      return `Pending Leave Requests (${pendingLeaves.length}):\n` +
+        pendingLeaves.map((l) => `• ${l.name}: ${l.leave_type} (${l.start_date} to ${l.end_date}, ${l.days}d) — ${l.reason}`).join('\n');
+    }
+    const totalTasks = db.prepare(
+      `SELECT COUNT(*) as cnt FROM tasks ${isPrivileged ? '' : 'WHERE assignee_id = ?'}`
+    ).get(...(isPrivileged ? [] : [Number(userId)])).cnt;
+    if (totalTasks === 0) return 'You have no tasks assigned yet.';
     const pending = db.prepare(`
       SELECT t.title, t.priority, t.due_date, e.name as assignee
       FROM tasks t LEFT JOIN employees e ON e.id = t.assignee_id
@@ -1817,7 +1856,7 @@ function generateBotReply(userId, promptText) {
       SELECT l.*, e.name FROM leaves l JOIN employees e ON e.id = l.employee_id
       WHERE l.status = 'pending' ${isPrivileged ? '' : 'AND l.employee_id = ?'}
     `).all(...(isPrivileged ? [] : [Number(userId)]));
-    if (pendingLeaves.length === 0) return 'There are no pending leave requests right now.';
+    if (pendingLeaves.length === 0) return 'You have no pending leave requests right now.';
     return `Pending Leave Requests (${pendingLeaves.length}):\n` +
       pendingLeaves.map((l) => `• ${l.name}: ${l.leave_type} (${l.start_date} to ${l.end_date}, ${l.days}d) — ${l.reason}`).join('\n');
   }
@@ -1827,19 +1866,8 @@ function generateBotReply(userId, promptText) {
       return 'Salary & Payroll details are managed by Admin/HR. Please contact Aarav Mehta for payroll inquiries.';
     }
     const report = buildMonthlyReport(getCurrentMonth());
-    const totalNet = report.rows.reduce((s, r) => s + r.salary.net_salary, 0);
+    const totalNet = report.rows.filter((r) => r.salary_set && r.salary).reduce((s, r) => s + r.salary.net_salary, 0);
     return `Payroll Snapshot (${report.month}):\n• Total Org Net Payroll: ₹${totalNet.toLocaleString('en-IN')}`;
-  }
-
-  if (q.includes('attendance') || q.includes('present') || q.includes('late') || q.includes('absent')) {
-    if (!isPrivileged) {
-      const me = emps[0];
-      return `Your Attendance (${today}):\n• Status: ${(me?.att_status || 'absent').toUpperCase()}\n• Active: ${Math.round((me?.active_seconds || 0) / 60)}m | Idle: ${Math.round((me?.idle_seconds || 0) / 60)}m`;
-    }
-    const present = emps.filter((e) => e.att_status === 'present').length;
-    const late = emps.filter((e) => e.att_status === 'late').map((e) => e.name);
-    const absent = emps.filter((e) => e.att_status === 'absent').map((e) => e.name);
-    return `Today's Attendance (${today}):\n• Present on time: ${present}\n• Late: ${late.length ? late.join(', ') : 'None'}\n• Absent/Not clocked in: ${absent.length ? absent.join(', ') : 'None'}`;
   }
 
   return `Hi ${caller?.name?.split(' ')[0] || 'there'}! I'm Zavi, your Zaviroq Assistant. Ask me about:\n• "Show pending tasks"\n• "Today's attendance"\n• "Pending leaves"\n• "Office timings & breaks"`;

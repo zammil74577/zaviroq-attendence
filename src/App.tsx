@@ -130,6 +130,7 @@ export function App() {
     liveState,
     secondsSinceActivity,
     pausedByOtherTab,
+    trackingMode,
     requestSystemIdleDetection,
     toggleBreak,
     forceIdle,
@@ -377,6 +378,7 @@ export function App() {
           currentUser={currentUser}
           onSelectUser={setSelectedUserId}
           liveState={liveState}
+          trackingMode={trackingMode}
           onClockIn={handleClockIn}
           onClockOut={handleClockOut}
           clockActionPending={clockActionPending}

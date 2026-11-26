@@ -656,3 +656,59 @@ test('Round 2: create employee -> no salary, temp PIN shown once, first-login PI
   const leaveJson = await leaveRes.json();
   assert.equal(leaveJson.balances[0].earned_total, 2.5);
 });
+
+test('Round 3: bot quick replies, zero-task bot reply, and leave date/overlap validation', async () => {
+  const { createSessionToken, SESSION_COOKIE_NAME } = await import('./auth.js');
+  const freshAdminCookie = `${SESSION_COOKIE_NAME}=${createSessionToken(1)}`;
+
+  // Create a fresh employee with 0 tasks
+  const createRes = await fetch(`${baseUrl}/api/employees`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: freshAdminCookie },
+    body: JSON.stringify({
+      name: 'Bot Tester',
+      email: 'bottester@zaviroq.com',
+      department: 'QA',
+      designation: 'QA Engineer',
+    }),
+  });
+  assert.equal(createRes.status, 201);
+  const emp = await createRes.json();
+  const empCookieLocal = `${SESSION_COOKIE_NAME}=${createSessionToken(emp.id)}`;
+
+  const askBot = async (msg) => {
+    const r = await fetch(`${baseUrl}/api/chat/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: empCookieLocal },
+      body: JSON.stringify({ recipient_id: 0, message: msg }),
+    });
+    assert.equal(r.status, 201);
+    const j = await r.json();
+    return j.botMsg.message;
+  };
+
+  assert.match(await askBot('My live status'), /Current State:.*Active: \d+m \| Idle: \d+m \| Break: \d+m/s);
+  assert.equal(await askBot('Show pending tasks'), 'You have no tasks assigned yet.');
+  assert.match(await askBot("Today's attendance"), /Clock-in:.*Hours so far:/s);
+  assert.match(await askBot('Pending leaves'), /no pending leave requests/i);
+  assert.match(await askBot('Office timings & breaks'), /Office Hours:.*Lunch Break:.*Tea Break:/s);
+
+  // Leave validation: end_date < start_date -> 400
+  const badRange = await fetch(`${baseUrl}/api/leaves`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: empCookieLocal },
+    body: JSON.stringify({ leave_type: 'casual', start_date: '2026-12-10', end_date: '2026-12-08', reason: 'Trip' }),
+  });
+  assert.equal(badRange.status, 400);
+
+  // Leave validation: clocked-in day -> 400
+  const today = new Date().toISOString().slice(0, 10);
+  db.prepare(`INSERT INTO attendance (employee_id, date, clock_in, status) VALUES (?, ?, ?, 'present')`)
+    .run(emp.id, today, new Date().toISOString());
+  const clockedOverlap = await fetch(`${baseUrl}/api/leaves`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: empCookieLocal },
+    body: JSON.stringify({ leave_type: 'casual', start_date: today, end_date: today, reason: 'Overlap' }),
+  });
+  assert.equal(clockedOverlap.status, 400);
+});

@@ -189,7 +189,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
             if (monthlyRows[0].salary_set === false || !s) {
               return (
                 <div className="rounded-xl border border-slate-800 bg-slate-900/75 p-4 text-xs text-slate-400">
-                  Salary not set — contact your administrator to configure your compensation structure.
+                  Salary not set by admin — contact your administrator to configure your compensation structure.
                 </div>
               );
             }

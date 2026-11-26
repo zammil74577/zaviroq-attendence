@@ -265,7 +265,9 @@ export const TasksTab: React.FC<TasksTabProps> = ({
 
       {filteredTasks.length === 0 && (
         <div className="rounded-2xl border border-dashed border-slate-800 p-10 text-center text-sm text-slate-400">
-          No tasks match your current filters.
+          {tasks.filter((t) => viewMode !== 'employee' || !currentUser || t.assignee_id === currentUser.id).length === 0
+            ? 'No tasks assigned yet'
+            : 'No tasks match your current filters.'}
         </div>
       )}
 

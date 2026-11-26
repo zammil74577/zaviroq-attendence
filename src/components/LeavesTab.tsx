@@ -1,7 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { CalendarPlus, Check, X as XIcon, CalendarDays } from 'lucide-react';
-import type { Employee, LeaveBalance, LeaveRequest, LeaveType, ViewMode } from '../types';
-import { getTodayISO } from '../utils/format';
+import type { Employee, Holiday, LeaveBalance, LeaveRequest, LeaveType, ViewMode } from '../types';
+
+function getTomorrowISO(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 interface LeavesTabProps {
   viewMode: ViewMode;
@@ -23,18 +28,23 @@ export const LeavesTab: React.FC<LeavesTabProps> = ({
 
   const [empId, setEmpId] = useState<number>(currentUser?.id || employees[0]?.id || 1);
   const [leaveType, setLeaveType] = useState<LeaveType>('casual');
-  const [startDate, setStartDate] = useState(getTodayISO());
-  const [endDate, setEndDate] = useState(getTodayISO());
+  const [startDate, setStartDate] = useState(getTomorrowISO());
+  const [endDate, setEndDate] = useState(getTomorrowISO());
   const [reason, setReason] = useState('');
+  const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [applyError, setApplyError] = useState<string | null>(null);
 
   const loadLeaves = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/leaves');
+      const [res, hRes] = await Promise.all([fetch('/api/leaves'), fetch('/api/holidays')]);
       if (res.ok) {
         const json = await res.json();
         setLeaves(json.leaves || []);
         setBalances(json.balances || []);
+      }
+      if (hRes.ok) {
+        setHolidays(await hRes.json());
       }
     } finally {
       setLoading(false);
@@ -45,8 +55,26 @@ export const LeavesTab: React.FC<LeavesTabProps> = ({
     loadLeaves();
   }, []);
 
+  const workingDaysCount = useMemo(() => {
+    if (!startDate || !endDate || endDate < startDate) return 0;
+    const holidaySet = new Set(holidays.map((h) => h.date));
+    const s = new Date(`${startDate}T00:00:00`);
+    const e = new Date(`${endDate}T00:00:00`);
+    let cnt = 0;
+    for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
+      const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      if (d.getDay() !== 0 && d.getDay() !== 6 && !holidaySet.has(ds)) cnt += 1;
+    }
+    return cnt;
+  }, [startDate, endDate, holidays]);
+
   const handleApply = async (e: React.FormEvent) => {
     e.preventDefault();
+    setApplyError(null);
+    if (endDate < startDate) {
+      setApplyError('End date must be on or after start date.');
+      return;
+    }
     const res = await fetch('/api/leaves', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -58,11 +86,14 @@ export const LeavesTab: React.FC<LeavesTabProps> = ({
         reason,
       }),
     });
-    if (res.ok) {
-      setReason('');
-      setShowModal(false);
-      await loadLeaves();
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      setApplyError(j.error || 'Failed to submit leave request.');
+      return;
     }
+    setReason('');
+    setShowModal(false);
+    await loadLeaves();
   };
 
   const handleDecision = async (id: number, status: 'approved' | 'rejected') => {
@@ -286,7 +317,11 @@ export const LeavesTab: React.FC<LeavesTabProps> = ({
                     required
                     type="date"
                     value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setStartDate(next);
+                      if (endDate < next) setEndDate(next);
+                    }}
                     className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
                   />
                 </div>
@@ -295,12 +330,22 @@ export const LeavesTab: React.FC<LeavesTabProps> = ({
                   <input
                     required
                     type="date"
+                    min={startDate}
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
                     className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
                   />
                 </div>
               </div>
+              <div className="rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-2 text-xs text-slate-300 flex items-center justify-between">
+                <span>Working days requested:</span>
+                <span className="font-mono-num font-bold text-indigo-300">{workingDaysCount} day{workingDaysCount === 1 ? '' : 's'}</span>
+              </div>
+              {applyError && (
+                <div className="rounded-xl border border-rose-500/40 bg-rose-950/40 px-3 py-2 text-xs text-rose-200">
+                  {applyError}
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1">Reason</label>
                 <textarea
