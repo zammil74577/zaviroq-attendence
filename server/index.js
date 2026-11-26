@@ -383,10 +383,23 @@ app.patch('/api/profile', requireAuth, (req, res) => {
   const existing = db.prepare('SELECT * FROM employees WHERE id = ? AND is_active = 1').get(req.user.id);
   if (!existing) return res.status(404).json({ error: 'Employee not found.' });
 
-  const { name, email, avatar_color, currentPin, newPin } = req.body || {};
+  const { name, email, avatar_color, avatar_url, currentPin, newPin } = req.body || {};
   const nextName = name !== undefined ? String(name).trim() : existing.name;
   const nextEmail = email !== undefined ? String(email).trim().toLowerCase() : existing.email;
   const nextColor = avatar_color !== undefined ? String(avatar_color).trim() : existing.avatar_color;
+  let nextAvatarUrl = existing.avatar_url || '';
+  if (avatar_url !== undefined) {
+    const rawUrl = String(avatar_url).trim();
+    if (rawUrl === '') {
+      nextAvatarUrl = '';
+    } else if (/^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(rawUrl) && rawUrl.length <= 450000) {
+      nextAvatarUrl = rawUrl;
+    } else if (/^https?:\/\/.+/.test(rawUrl) && rawUrl.length <= 500) {
+      nextAvatarUrl = rawUrl;
+    } else {
+      return res.status(400).json({ error: 'Profile picture must be a valid image (PNG/JPEG/WebP/GIF) under 300 KB.' });
+    }
+  }
 
   if (!nextName || nextName.length < 2 || nextName.length > 80) {
     return res.status(400).json({ error: 'Name must be between 2 and 80 characters.' });
@@ -417,9 +430,9 @@ app.patch('/api/profile', requireAuth, (req, res) => {
 
   db.prepare(`
     UPDATE employees
-    SET name = ?, email = ?, avatar_color = ?, pin = ?, must_change_pin = CASE WHEN ? = 1 THEN 0 ELSE must_change_pin END
+    SET name = ?, email = ?, avatar_color = ?, avatar_url = ?, pin = ?, must_change_pin = CASE WHEN ? = 1 THEN 0 ELSE must_change_pin END
     WHERE id = ?
-  `).run(nextName, nextEmail, nextColor, nextPinHash, pinChanged ? 1 : 0, req.user.id);
+  `).run(nextName, nextEmail, nextColor, nextAvatarUrl, nextPinHash, pinChanged ? 1 : 0, req.user.id);
 
   const updated = db.prepare('SELECT * FROM employees WHERE id = ?').get(req.user.id);
   writeAuditLog({
@@ -525,7 +538,7 @@ app.get('/api/dashboard', (req, res) => {
   const includeInactive = isPrivileged && req.query.includeInactive === 'true';
   const rawEmployees = db.prepare(`
     SELECT e.id, e.emp_code, e.name, e.email, e.role, e.department, e.designation,
-      e.shift_start, e.shift_end, e.status, e.avatar_color, e.joining_date, e.is_active, e.last_seen_at,
+      e.shift_start, e.shift_end, e.status, e.avatar_color, COALESCE(e.avatar_url, '') as avatar_url, e.joining_date, e.is_active, e.last_seen_at,
       e.last_heartbeat_at, e.last_heartbeat_state, e.created_at,
       a.id as attendance_id,
       a.clock_in,
@@ -2310,7 +2323,7 @@ Reply warmly, concisely, and accurately based only on this data.`;
 // Minimal chat contacts list (never includes pin, salary, or attendance)
 app.get('/api/chat/contacts', (req, res) => {
   const contacts = db.prepare(`
-    SELECT id, emp_code, name, designation, department, avatar_color, status, role
+    SELECT id, emp_code, name, designation, department, avatar_color, COALESCE(avatar_url, '') as avatar_url, status, role
     FROM employees
     WHERE is_active = 1 AND id != ?
     ORDER BY id ASC

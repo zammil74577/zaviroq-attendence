@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { UserPlus, Megaphone, Mail, Clock, Search, Edit3, X, Copy, KeyRound, RefreshCw, Monitor } from 'lucide-react';
 import type { DeviceTokenInfo, Employee, ViewMode } from '../types';
-import { getInitials } from '../utils/format';
 import { LiveStatusBadge } from './StatusBadge';
+import { Avatar } from './Avatar';
 
 function validatePinClient(pin: string): string | null {
   const s = pin.trim();
@@ -327,12 +327,12 @@ export const DirectoryTab: React.FC<DirectoryTabProps> = ({
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-3">
-                  <div
-                    className="h-11 w-11 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0"
-                    style={{ backgroundColor: emp.avatar_color }}
-                  >
-                    {getInitials(emp.name)}
-                  </div>
+                  <Avatar
+                    name={emp.name}
+                    color={emp.avatar_color}
+                    url={emp.avatar_url}
+                    className="h-11 w-11 text-sm"
+                  />
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-white">{emp.name}</span>

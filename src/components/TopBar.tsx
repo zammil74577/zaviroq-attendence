@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import type { AppNotification, Employee, TabId, ViewMode } from '../types';
 import { LiveStatusBadge } from './StatusBadge';
+import { Avatar } from './Avatar';
 
 interface TopBarProps {
   viewMode: ViewMode;
@@ -157,13 +158,6 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   const isClockedIn = Boolean(currentUser?.clock_in && !currentUser?.clock_out);
   const effectiveLiveStatus = isClockedIn ? (currentUser?.status || liveState) : 'offline';
-  const initials = currentUser
-    ? currentUser.name
-        .split(' ')
-        .slice(0, 2)
-        .map((n) => n[0])
-        .join('')
-    : 'ZV';
 
   return (
     <header className="sticky top-0 z-30 border-b border-[var(--zv-border)] bg-[var(--zv-surface)]/95 backdrop-blur-md px-3 sm:px-6 py-2.5 shadow-[0_4px_16px_rgba(91,72,180,0.05)]">
@@ -211,12 +205,12 @@ export const TopBar: React.FC<TopBarProps> = ({
           {/* Acting Employee Selector Pill */}
           {currentUser && (
             <div className="flex items-center gap-2 rounded-full border border-[var(--zv-border)] bg-[var(--zv-surface)] px-2.5 py-1 shadow-xs max-w-full">
-              <span
-                className="h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0 zv-text-white-keep"
-                style={{ backgroundColor: currentUser.avatar_color }}
-              >
-                {initials}
-              </span>
+              <Avatar
+                name={currentUser.name}
+                color={currentUser.avatar_color}
+                url={currentUser.avatar_url}
+                className="h-6 w-6 text-[11px]"
+              />
               {isLockedEmployee ? (
                 <span className="text-xs font-semibold text-[var(--zv-text)] pr-1 truncate max-w-[140px] sm:max-w-none">
                   {currentUser.name} ({currentUser.emp_code})
@@ -422,11 +416,16 @@ export const TopBar: React.FC<TopBarProps> = ({
             <button
               type="button"
               onClick={() => setShowUserMenu((v) => !v)}
-              className="h-9 w-9 rounded-full bg-gradient-to-br from-[#6D4AFF] to-[#8B5CF6] text-white text-xs font-bold flex items-center justify-center shadow-sm cursor-pointer zv-text-white-keep"
+              className="rounded-full shadow-sm cursor-pointer"
               title="Account & Theme"
               aria-label="Account & Theme"
             >
-              {initials}
+              <Avatar
+                name={currentUser?.name || 'Zaviroq'}
+                color={currentUser?.avatar_color || '#6D4AFF'}
+                url={currentUser?.avatar_url}
+                className="h-9 w-9 text-xs"
+              />
             </button>
             {showUserMenu && (
               <div className="absolute right-0 mt-2 w-56 rounded-2xl border border-[var(--zv-border)] bg-[var(--zv-surface)] p-2 shadow-2xl z-50 space-y-1 text-xs">

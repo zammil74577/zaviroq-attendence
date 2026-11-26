@@ -40,6 +40,7 @@ export interface LeaveRequest {
   emp_code: string;
   department: string;
   avatar_color: string;
+  avatar_url?: string;
   leave_type: LeaveType;
   start_date: string;
   end_date: string;
@@ -94,6 +95,7 @@ export interface MonthlyReportRow {
   department: string;
   designation: string;
   avatar_color: string;
+  avatar_url?: string;
   present_days: number;
   late_days: number;
   half_days: number;
@@ -139,6 +141,7 @@ export interface Employee {
   shift_end: string;
   status: LiveStatus;
   avatar_color: string;
+  avatar_url?: string;
   joining_date?: string | null;
   is_active?: boolean | number;
   must_change_pin?: number;
@@ -303,6 +306,7 @@ export interface ChatContact {
   designation: string;
   department: string;
   avatar_color: string;
+  avatar_url?: string;
   status: LiveStatus;
   role: string;
 }

@@ -40,6 +40,7 @@ export async function ensureSchemaOnce() {
     await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMPTZ`);
     await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS last_heartbeat_state TEXT`);
     await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE`);
+    await query(`ALTER TABLE employees ADD COLUMN IF NOT EXISTS avatar_url TEXT DEFAULT ''`);
     await query(`ALTER TABLE attendance ADD COLUMN IF NOT EXISTS tracking_mode TEXT NOT NULL DEFAULT 'tab_only'`);
     await query(`ALTER TABLE attendance ADD COLUMN IF NOT EXISTS missed_clock_out BOOLEAN NOT NULL DEFAULT FALSE`);
     await query(`ALTER TABLE attendance ADD COLUMN IF NOT EXISTS manual_override BOOLEAN NOT NULL DEFAULT FALSE`);

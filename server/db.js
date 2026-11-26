@@ -111,6 +111,7 @@ export function initSchema() {
       shift_end TEXT NOT NULL DEFAULT '17:30',
       status TEXT NOT NULL DEFAULT 'offline',
       avatar_color TEXT NOT NULL DEFAULT '#6366f1',
+      avatar_url TEXT DEFAULT '',
       joining_date TEXT,
       pin TEXT NOT NULL DEFAULT '1234',
       failed_login_attempts INTEGER NOT NULL DEFAULT 0,
@@ -338,6 +339,7 @@ export function runMigrations() {
   safeAlter(`ALTER TABLE employees ADD COLUMN failed_login_attempts INTEGER NOT NULL DEFAULT 0`);
   safeAlter(`ALTER TABLE employees ADD COLUMN locked_until TEXT`);
   safeAlter(`ALTER TABLE employees ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1`);
+  safeAlter(`ALTER TABLE employees ADD COLUMN avatar_url TEXT DEFAULT ''`);
   safeAlter(`ALTER TABLE employees ADD COLUMN tracking_consent_at TEXT`);
   safeAlter(`ALTER TABLE employees ADD COLUMN active_session_id TEXT`);
   safeAlter(`ALTER TABLE employees ADD COLUMN last_heartbeat_at TEXT`);

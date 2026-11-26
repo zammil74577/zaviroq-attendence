@@ -497,10 +497,23 @@ app.patch('/api/profile', requireAuth, async (req, res) => {
   const existing = await getOne('SELECT * FROM employees WHERE id = $1 AND is_active = TRUE', [req.user.id]);
   if (!existing) return res.status(404).json({ error: 'Employee not found.' });
 
-  const { name, email, avatar_color, currentPin, newPin } = req.body || {};
+  const { name, email, avatar_color, avatar_url, currentPin, newPin } = req.body || {};
   const nextName = name !== undefined ? String(name).trim() : existing.name;
   const nextEmail = email !== undefined ? String(email).trim().toLowerCase() : existing.email;
   const nextColor = avatar_color !== undefined ? String(avatar_color).trim() : existing.avatar_color;
+  let nextAvatarUrl = existing.avatar_url || '';
+  if (avatar_url !== undefined) {
+    const rawUrl = String(avatar_url).trim();
+    if (rawUrl === '') {
+      nextAvatarUrl = '';
+    } else if (/^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(rawUrl) && rawUrl.length <= 450000) {
+      nextAvatarUrl = rawUrl;
+    } else if (/^https?:\/\/.+/.test(rawUrl) && rawUrl.length <= 500) {
+      nextAvatarUrl = rawUrl;
+    } else {
+      return res.status(400).json({ error: 'Profile picture must be a valid image (PNG/JPEG/WebP/GIF) under 300 KB.' });
+    }
+  }
 
   if (!nextName || nextName.length < 2 || nextName.length > 80) {
     return res.status(400).json({ error: 'Name must be between 2 and 80 characters.' });
@@ -531,10 +544,10 @@ app.patch('/api/profile', requireAuth, async (req, res) => {
 
   const updated = await getOne(
     `UPDATE employees
-     SET name = $1, email = $2, avatar_color = $3, pin = $4, must_change_pin = CASE WHEN $5::boolean THEN FALSE ELSE must_change_pin END
-     WHERE id = $6
+     SET name = $1, email = $2, avatar_color = $3, avatar_url = $4, pin = $5, must_change_pin = CASE WHEN $6::boolean THEN FALSE ELSE must_change_pin END
+     WHERE id = $7
      RETURNING *`,
-    [nextName, nextEmail, nextColor, nextPinHash, pinChanged, req.user.id]
+    [nextName, nextEmail, nextColor, nextAvatarUrl, nextPinHash, pinChanged, req.user.id]
   );
 
   await writeAuditLog({
@@ -661,7 +674,7 @@ app.get('/api/dashboard', async (req, res) => {
     getSettings(),
     getAll(
       `SELECT e.id, e.emp_code, e.name, e.email, e.role, e.department, e.designation,
-        e.shift_start, e.shift_end, e.status, e.avatar_color, e.joining_date::text as joining_date,
+        e.shift_start, e.shift_end, e.status, e.avatar_color, COALESCE(e.avatar_url, '') as avatar_url, e.joining_date::text as joining_date,
         e.is_active, e.tracking_consent_at,
         e.last_seen_at, e.last_heartbeat_at, e.last_heartbeat_state, e.created_at,
         a.id as attendance_id, a.clock_in, a.clock_out,
@@ -1861,7 +1874,7 @@ app.post('/api/devices/:id/revoke', revokeDeviceHandler);
 // CHAT + SUPABASE STORAGE SIGNED IMAGES
 // ========================
 app.get('/api/chat/contacts', async (req, res) => {
-  res.json(await getAll(`SELECT id, emp_code, name, designation, department, avatar_color, status, role FROM employees WHERE is_active = TRUE AND id != $1 ORDER BY id ASC`, [req.user.id]));
+  res.json(await getAll(`SELECT id, emp_code, name, designation, department, avatar_color, COALESCE(avatar_url, '') as avatar_url, status, role FROM employees WHERE is_active = TRUE AND id != $1 ORDER BY id ASC`, [req.user.id]));
 });
 
 async function generateBotReply(userId, promptText) {

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Calendar, Download, Search, Edit3, X } from 'lucide-react';
 import type { AttendanceStatus, Employee, ViewMode } from '../types';
-import { calcProductivity, extractHHMM, formatClockTime, formatHM, getInitials } from '../utils/format';
+import { calcProductivity, extractHHMM, formatClockTime, formatHM } from '../utils/format';
 import { AttendanceBadge, LiveStatusBadge } from './StatusBadge';
+import { Avatar } from './Avatar';
 
 interface AttendanceTabProps {
   employees: Employee[];
@@ -173,12 +174,12 @@ export const AttendanceTab: React.FC<AttendanceTabProps> = ({
                 <tr key={emp.id} className="hover:bg-slate-800/30 transition-colors">
                   <td className="px-4 py-3.5">
                     <div className="flex items-center gap-2.5">
-                      <div
-                        className="h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-                        style={{ backgroundColor: emp.avatar_color }}
-                      >
-                        {getInitials(emp.name)}
-                      </div>
+                      <Avatar
+                        name={emp.name}
+                        color={emp.avatar_color}
+                        url={emp.avatar_url}
+                        className="h-8 w-8 text-xs"
+                      />
                       <div>
                         <div className="font-semibold text-white">{emp.name}</div>
                         <div className="text-[11px] text-slate-400">

@@ -23,6 +23,7 @@ import {
   type CelebrationKind,
   type CelebrationPayload,
 } from './components/CelebrationOverlay';
+import { Avatar } from './components/Avatar';
 
 export function App() {
   const [authUser, setAuthUser] = useState<Employee | null>(null);
@@ -52,6 +53,7 @@ export function App() {
   const [profileName, setProfileName] = useState('');
   const [profileEmail, setProfileEmail] = useState('');
   const [profileColor, setProfileColor] = useState('#6D4AFF');
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState('');
   const [profileCurrentPin, setProfileCurrentPin] = useState('');
   const [profileNewPin, setProfileNewPin] = useState('');
   const [profileSaving, setProfileSaving] = useState(false);
@@ -612,6 +614,7 @@ export function App() {
               setProfileName(authUser.name);
               setProfileEmail(authUser.email);
               setProfileColor(authUser.avatar_color || '#6D4AFF');
+              setProfileAvatarUrl(authUser.avatar_url || '');
               setProfileCurrentPin('');
               setProfileNewPin('');
               setProfileError(null);
@@ -976,6 +979,7 @@ export function App() {
                     name: profileName,
                     email: profileEmail,
                     avatar_color: profileColor,
+                    avatar_url: profileAvatarUrl,
                     ...(profileNewPin.trim() ? { currentPin: profileCurrentPin, newPin: profileNewPin } : {}),
                   }),
                 });
@@ -997,12 +1001,12 @@ export function App() {
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div
-                  className="h-11 w-11 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0 zv-text-white-keep"
-                  style={{ backgroundColor: profileColor }}
-                >
-                  {(profileName || authUser.name).split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase()}
-                </div>
+                <Avatar
+                  name={profileName || authUser.name}
+                  color={profileColor}
+                  url={profileAvatarUrl}
+                  className="h-12 w-12 text-sm"
+                />
                 <div>
                   <h2 className="text-base font-bold font-heading text-[var(--zv-text)]">My Profile</h2>
                   <p className="text-[11px] text-[var(--zv-muted)]">
@@ -1017,6 +1021,52 @@ export function App() {
               >
                 Close
               </button>
+            </div>
+
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <label className="inline-flex items-center gap-1.5 rounded-xl border border-[#DDD6FE] bg-[#EFEAFF] hover:bg-[#E4DCFF] px-3 py-1.5 text-xs font-semibold text-[#6D4AFF] cursor-pointer transition-colors">
+                Upload Photo
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const img = new Image();
+                      img.onload = () => {
+                        const size = 160;
+                        const canvas = document.createElement('canvas');
+                        canvas.width = size;
+                        canvas.height = size;
+                        const ctx = canvas.getContext('2d');
+                        if (!ctx) return;
+                        const minSide = Math.min(img.width, img.height);
+                        const sx = (img.width - minSide) / 2;
+                        const sy = (img.height - minSide) / 2;
+                        ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, size, size);
+                        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                        setProfileAvatarUrl(dataUrl);
+                      };
+                      img.src = String(reader.result || '');
+                    };
+                    reader.readAsDataURL(file);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+              {profileAvatarUrl && (
+                <button
+                  type="button"
+                  onClick={() => setProfileAvatarUrl('')}
+                  className="rounded-xl border border-[var(--zv-border)] px-3 py-1.5 text-xs font-semibold text-[#DC2626] hover:bg-[#FDECEC] cursor-pointer"
+                >
+                  Remove Photo
+                </button>
+              )}
+              <span className="text-[11px] text-[var(--zv-muted)]">Auto-cropped to 160&times;160</span>
             </div>
 
             <div>

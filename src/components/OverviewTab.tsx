@@ -18,8 +18,9 @@ import {
   Gift,
 } from 'lucide-react';
 import type { DashboardData, Employee, TabId, ViewMode } from '../types';
-import { calcProductivity, formatClockTime, formatHM, formatRelativeTime, getInitials } from '../utils/format';
+import { calcProductivity, formatClockTime, formatHM, formatRelativeTime } from '../utils/format';
 import { AttendanceBadge, LiveStatusBadge, PriorityBadge, TaskStatusBadge } from './StatusBadge';
+import { Avatar } from './Avatar';
 
 interface OverviewTabProps {
   data: DashboardData;
@@ -240,7 +241,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
               icon={<Users className="h-5 w-5 text-white" strokeWidth={1.75} />}
               accent="purple"
               featured
-              avatars={employees.slice(0, 3).map((e) => ({ name: e.name, color: e.avatar_color }))}
+              avatars={employees.slice(0, 3).map((e) => ({ name: e.name, color: e.avatar_color, url: e.avatar_url }))}
               extraCount={Math.max(0, summary.totalEmployees - 3)}
             />
             <KpiCard
@@ -310,12 +311,12 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-3 min-w-0">
-                        <div
-                          className="h-10 w-10 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 zv-text-white-keep"
-                          style={{ backgroundColor: emp.avatar_color }}
-                        >
-                          {getInitials(emp.name)}
-                        </div>
+                        <Avatar
+                          name={emp.name}
+                          color={emp.avatar_color}
+                          url={emp.avatar_url}
+                          className="h-10 w-10 text-xs"
+                        />
                         <div className="min-w-0">
                           <div className="truncate text-sm font-bold text-[var(--zv-text)]">{emp.name}</div>
                           <div className="truncate text-[11px] text-[var(--zv-muted)]">
@@ -533,7 +534,7 @@ const KpiCard: React.FC<{
   icon: React.ReactNode;
   accent: 'purple' | 'green' | 'orange' | 'blue';
   featured?: boolean;
-  avatars?: Array<{ name: string; color: string }>;
+  avatars?: Array<{ name: string; color: string; url?: string }>;
   extraCount?: number;
 }> = ({ title, value, sub, icon, accent, featured = false, avatars, extraCount = 0 }) => {
   const styles: Record<string, { chip: string; stroke: string; fill: string }> = {
@@ -571,13 +572,13 @@ const KpiCard: React.FC<{
           {avatars && avatars.length > 0 && (
             <div className="flex items-center -space-x-2 shrink-0 pt-1">
               {avatars.map((a, idx) => (
-                <span
-                  key={idx}
-                  title={a.name}
-                  className="h-7 w-7 rounded-full border-2 border-[#7C3AED] flex items-center justify-center text-[10px] font-bold text-white shadow-sm zv-text-white-keep"
-                  style={{ backgroundColor: a.color }}
-                >
-                  {getInitials(a.name)}
+                <span key={idx} title={a.name}>
+                  <Avatar
+                    name={a.name}
+                    color={a.color}
+                    url={a.url}
+                    className="h-7 w-7 text-[10px] border-2 border-[#7C3AED] shadow-sm"
+                  />
                 </span>
               ))}
               {extraCount > 0 && (

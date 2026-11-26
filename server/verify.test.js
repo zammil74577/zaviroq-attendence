@@ -1024,4 +1024,32 @@ test('Self-service profile update: employee can update name/email/avatar_color/P
     body: JSON.stringify({ currentPin: '000000', newPin: '395821' }),
   });
   assert.equal(badPinRes.status, 401);
+
+  // Upload valid profile picture (data:image/png;base64,...) and verify /api/auth/me + /api/dashboard fetch it
+  const samplePng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  const picRes = await fetch(`${baseUrl}/api/profile`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify({ avatar_url: samplePng }),
+  });
+  assert.equal(picRes.status, 200);
+  const picBody = await picRes.json();
+  assert.equal(picBody.employee.avatar_url, samplePng);
+
+  const mePic = await fetch(`${baseUrl}/api/auth/me`, { headers: { Cookie: cookie } });
+  const mePicBody = await mePic.json();
+  assert.equal(mePicBody.employee.avatar_url, samplePng);
+
+  const dashPic = await fetch(`${baseUrl}/api/dashboard`, { headers: { Cookie: cookie } });
+  const dashPicBody = await dashPic.json();
+  const z902 = dashPicBody.employees.find((e) => e.emp_code === 'ZAV-902');
+  assert.equal(z902.avatar_url, samplePng);
+
+  // Invalid avatar_url rejected with 400
+  const badPic = await fetch(`${baseUrl}/api/profile`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
+    body: JSON.stringify({ avatar_url: 'javascript:alert(1)' }),
+  });
+  assert.equal(badPic.status, 400);
 });

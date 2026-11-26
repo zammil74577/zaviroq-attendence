@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Bot, ImagePlus, Send, Sparkles, X } from 'lucide-react';
 import type { ChatContact, ChatMessage, Employee, ViewMode } from '../types';
-import { formatClockTime, getInitials } from '../utils/format';
+import { formatClockTime } from '../utils/format';
 import { LiveStatusBadge } from './StatusBadge';
+import { Avatar } from './Avatar';
 
 interface ChatTabProps {
   viewMode: ViewMode;
@@ -172,12 +173,12 @@ export const ChatTab: React.FC<ChatTabProps> = ({ viewMode, currentUser }) => {
               }`}
             >
               <div className="flex items-center gap-2.5 min-w-0">
-                <div
-                  className="h-9 w-9 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-                  style={{ backgroundColor: emp.avatar_color }}
-                >
-                  {getInitials(emp.name)}
-                </div>
+                <Avatar
+                  name={emp.name}
+                  color={emp.avatar_color}
+                  url={emp.avatar_url}
+                  className="h-9 w-9 text-xs"
+                />
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-white truncate">{emp.name}</div>
                   <div className="text-[11px] text-slate-400 truncate">{emp.designation}</div>
@@ -205,12 +206,12 @@ export const ChatTab: React.FC<ChatTabProps> = ({ viewMode, currentUser }) => {
                 </>
               ) : selectedPeer ? (
                 <>
-                  <div
-                    className="h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                    style={{ backgroundColor: selectedPeer.avatar_color }}
-                  >
-                    {getInitials(selectedPeer.name)}
-                  </div>
+                  <Avatar
+                    name={selectedPeer.name}
+                    color={selectedPeer.avatar_color}
+                    url={selectedPeer.avatar_url}
+                    className="h-8 w-8 text-xs"
+                  />
                   <div>
                     <div className="text-sm font-bold text-white">{selectedPeer.name}</div>
                     <div className="text-[11px] text-slate-400">
